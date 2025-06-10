@@ -11,6 +11,7 @@ const Pagination: React.FC<PaginationProps> = ({
   currentPage,
   totalPages,
   onPageChange,
+  className = '',
 }) => {
   const renderPageButtons = () => {
     const pages = [];
@@ -76,7 +77,7 @@ const Pagination: React.FC<PaginationProps> = ({
   if (totalPages <= 1) return null;
 
   return (
-    <div className="flex items-center justify-end mt-4">
+    <div className={`flex items-center justify-center mt-4 ${className}`}> {/* justify-end를 justify-center로 변경 */}
       {renderPageButtons()}
     </div>
   );

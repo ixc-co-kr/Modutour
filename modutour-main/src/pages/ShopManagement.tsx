@@ -10,6 +10,7 @@ import Pagination from '../components/ui/Pagination';
 const ShopManagement: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'new' | 'registered'>('new');
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null); // 선택된 행 상태 추가
 
   // 더미 데이터
   const newProducts = [
@@ -42,6 +43,13 @@ const ShopManagement: React.FC = () => {
 
   const currentProducts = activeTab === 'new' ? newProducts : registeredProducts;
 
+  // 탭 변경 시 선택된 행 초기화
+  const handleTabChange = (tab: 'new' | 'registered') => {
+    setActiveTab(tab);
+    setSelectedRowIndex(null);
+    setCurrentPage(1);
+  };
+
   return (
     <div className="bg-white">
       <div className="flex items-center justify-between mb-6">
@@ -51,7 +59,7 @@ const ShopManagement: React.FC = () => {
       <div className="border-b border-gray-200 mb-6">
         <div className="flex gap-8">
           <button
-            onClick={() => setActiveTab('new')}
+            onClick={() => handleTabChange('new')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'new' 
                 ? 'text-blue-600 border-blue-600' 
@@ -61,7 +69,7 @@ const ShopManagement: React.FC = () => {
             신규 등록
           </button>
           <button
-            onClick={() => setActiveTab('registered')}
+            onClick={() => handleTabChange('registered')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'registered' 
                 ? 'text-blue-600 border-blue-600' 
@@ -74,7 +82,7 @@ const ShopManagement: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-4 mb-6">
-        <Button>신규 상품 등록하기</Button>
+        <Button variant="new-product">신규 상품 불러오기</Button>
         <div className="text-sm text-gray-500">최근 수집: 2025-06-05 16:10:24</div>
       </div>
 
@@ -83,14 +91,18 @@ const ShopManagement: React.FC = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>상품명</TableHead>
-                <TableHead>가격</TableHead>
-                <TableHead>상품코드</TableHead>
+                <TableHead width={352}>상품명</TableHead>
+                <TableHead width={104}>가격</TableHead>
+                <TableHead width={129}>상품코드</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {currentProducts.map((product, index) => (
-                <TableRow key={index}>
+                <TableRow 
+                  key={index}
+                  onClick={() => setSelectedRowIndex(index)} // 클릭 시 선택 상태 변경
+                  isSelected={selectedRowIndex === index} // 선택 상태 전달
+                >
                   <TableCell>{product.name}</TableCell>
                   <TableCell>{product.price}</TableCell>
                   <TableCell>{product.code}</TableCell>
@@ -107,22 +119,41 @@ const ShopManagement: React.FC = () => {
           />
         </div>
 
-        <Card className="w-[600px] p-6">
-          <div className="space-y-6">
+        {/* 우측 Card 영역 - 지정된 레이아웃 적용 */}
+        <div 
+          className="bg-white border border-gray-200"
+          style={{
+            width: '943px',
+            height: '800px',
+            top: '194px',
+            left: '633px',
+            gap: '10px',
+            borderRadius: '6px',
+            borderWidth: '1px',
+            paddingTop: '16px',    // padding
+            paddingRight: '32px',  // paddingLG
+            paddingBottom: '16px', // padding
+            paddingLeft: '32px',   // paddingLG
+          }}
+        >
+          <div className="space-y-4">
             <Input
               label="상품명"
               placeholder="인천출발 세부 자유여행 3박5일"
-              helpText="100자 이내 / 추천검색 사용 금지 (형용사 등) / 정보성 텍스트 금지 (예: 직링크, 찬송가 등)"
+              helpText="100자 이내 / 특수문자 사용 금지 (!,@,# 등) / 광고성 표현 금지 (예: 최저가, 단하루 등)"
+              variant="product-name"
             />
 
             <Input
               label="가격"
               placeholder="489,000"
+              variant="price"
             />
 
             <Input
               label="상품 링크"
               placeholder="https://tourmake.modetour.co.kr/Pkg/Itinerary/?PkgUrl=B7917693"
+              variant="product-link"
             />
 
             <FileUpload
@@ -133,6 +164,7 @@ const ShopManagement: React.FC = () => {
             <Input
               label="상품코드"
               placeholder="AVP636KE51"
+              variant="product-code"
             />
 
             <div>
@@ -154,14 +186,15 @@ const ShopManagement: React.FC = () => {
               label="상품설명"
               placeholder="#2도시여행 #벤트펍달링 #푸켓발견김과 #피피섬어장"
               helpText="HTML 태그 불가 / 1000자 이내 권장"
+              variant="product-description"
             />
 
-            <div className="flex gap-3">
-              <Button className="flex-1">저장 후 등록</Button>
-              <Button variant="outline" className="flex-1">초기화</Button>
+            <div className="flex gap-2 mt-8">
+              <Button variant="save">저장 후 등록</Button>
+              <Button variant="reset">초기화</Button>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );

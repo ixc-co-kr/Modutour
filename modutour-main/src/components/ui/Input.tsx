@@ -9,6 +9,7 @@ interface InputProps {
   label?: string;
   helpText?: string;
   required?: boolean;
+  variant?: 'default' | 'product-name' | 'price' | 'product-link' | 'product-code' | 'category-1' | 'category-2' | 'category-3';
 }
 
 const Input: React.FC<InputProps> = ({
@@ -20,11 +21,136 @@ const Input: React.FC<InputProps> = ({
   label,
   helpText,
   required = false,
+  variant = 'default'
 }) => {
+  // 각 variant별 스타일 정의
+  const getVariantStyle = () => {
+    switch (variant) {
+      case 'product-name':
+        return {
+          width: '895px',
+          height: '32px',
+          gap: '10px',
+          borderRadius: '6px',
+          borderWidth: '1px',
+          paddingRight: '12px',
+          paddingLeft: '12px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      case 'price':
+        return {
+          width: '120px',
+          height: '32px',
+          gap: '8px',
+          borderRadius: '6px',
+          borderWidth: '1px',
+          paddingLeft: '8px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      case 'product-link':
+        return {
+          width: '895px',
+          height: '32px',
+          gap: '10px',
+          borderRadius: '6px',
+          borderWidth: '1px',
+          paddingRight: '12px',
+          paddingLeft: '12px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      case 'product-code':
+        return {
+          width: '344px',
+          height: '32px',
+          gap: '10px',
+          borderRadius: '6px',
+          borderWidth: '1px',
+          paddingRight: '12px',
+          paddingLeft: '12px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      case 'category-1':
+        return {
+          width: '160px',
+          height: '32px',
+          gap: '4px',
+          borderRadius: '6px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      case 'category-2':
+        return {
+          width: '144px',
+          height: '32px',
+          top: '562px',
+          left: '172px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      case 'category-3':
+        return {
+          width: '144px',
+          height: '32px',
+          top: '562px',
+          left: '328px',
+          fontFamily: 'Pretendard',
+          fontWeight: 400,
+          fontSize: '14px',
+          lineHeight: '22px',
+          letterSpacing: '0%'
+        };
+      default:
+        return {};
+    }
+  };
+
+  const inputStyle = getVariantStyle();
+
+  // helpText 스타일
+  const helpTextStyle = {
+    fontFamily: 'Pretendard',
+    fontWeight: 400,
+    fontSize: '14px',
+    lineHeight: '22px',
+    letterSpacing: '0%'
+  };
+
+  // label 스타일
+  const labelStyle = {
+    fontFamily: 'Pretendard',
+    fontWeight: 400,
+    fontSize: '14px',
+    lineHeight: '22px',
+    letterSpacing: '0%',
+    color: '#000000E0' // var(--Input-colorText, #000000E0)
+  };
+
   return (
     <div className="space-y-1">
       {label && (
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block" style={labelStyle}>
           {label}
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
@@ -34,10 +160,16 @@ const Input: React.FC<InputProps> = ({
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}`}
+        className={variant === 'default' ? 
+          `w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}` :
+          `px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}`
+        }
+        style={inputStyle}
       />
       {helpText && (
-        <div className="text-xs text-gray-500">{helpText}</div>
+        <div className="text-gray-500" style={helpTextStyle}>
+          {helpText}
+        </div>
       )}
     </div>
   );
@@ -52,6 +184,7 @@ interface TextareaProps {
   helpText?: string;
   rows?: number;
   required?: boolean;
+  variant?: 'default' | 'product-description';
 }
 
 const Textarea: React.FC<TextareaProps> = ({
@@ -63,11 +196,62 @@ const Textarea: React.FC<TextareaProps> = ({
   helpText,
   rows = 3,
   required = false,
+  variant = 'default'
 }) => {
+  // 상품설명 variant 스타일
+  const getVariantStyle = () => {
+    if (variant === 'product-description') {
+      return {
+        width: '895px',
+        height: '32px',
+        gap: '10px',
+        borderRadius: '6px',
+        borderWidth: '1px',
+        paddingRight: '12px',
+        paddingLeft: '12px',
+        fontFamily: 'Pretendard',
+        fontWeight: 400,
+        fontSize: '14px',
+        lineHeight: '22px',
+        letterSpacing: '0%'
+      };
+    }
+    return {};
+  };
+
+  // 기본 글꼴 스타일
+  const textareaStyle = {
+    fontFamily: 'Pretendard',
+    fontWeight: 400,
+    fontSize: '14px',
+    lineHeight: '22px',
+    letterSpacing: '0%',
+    ...getVariantStyle()
+  };
+
+  // helpText 스타일
+  const helpTextStyle = {
+    fontFamily: 'Pretendard',
+    fontWeight: 400,
+    fontSize: '14px',
+    lineHeight: '22px',
+    letterSpacing: '0%'
+  };
+
+  // label 스타일
+  const labelStyle = {
+    fontFamily: 'Pretendard',
+    fontWeight: 400,
+    fontSize: '14px',
+    lineHeight: '22px',
+    letterSpacing: '0%',
+    color: '#000000E0' // var(--Input-colorText, #000000E0)
+  };
+
   return (
     <div className="space-y-1">
       {label && (
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block" style={labelStyle}>
           {label}
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
@@ -76,11 +260,17 @@ const Textarea: React.FC<TextareaProps> = ({
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        rows={rows}
-        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}`}
+        rows={variant === 'product-description' ? 1 : rows}
+        className={variant === 'default' ? 
+          `w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}` :
+          `px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}`
+        }
+        style={textareaStyle}
       />
       {helpText && (
-        <div className="text-xs text-gray-500">{helpText}</div>
+        <div className="text-gray-500" style={helpTextStyle}>
+          {helpText}
+        </div>
       )}
     </div>
   );

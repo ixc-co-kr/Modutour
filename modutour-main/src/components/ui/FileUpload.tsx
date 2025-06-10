@@ -1,5 +1,7 @@
 import React from 'react';
-import { Upload, Paperclip, Image } from 'lucide-react';
+import { UploadOutlined } from '@ant-design/icons';
+import { Button, message, Upload } from 'antd';
+import { Image } from 'lucide-react';
 
 interface FileUploadProps {
   label?: string;
@@ -14,6 +16,28 @@ const FileUpload: React.FC<FileUploadProps> = ({
   onUpload,
   className = '',
 }) => {
+  const uploadProps = {
+    name: 'file',
+    action: 'https://www.mocky.io/v2/5cc8019d300000980a055e76',
+    headers: {
+      authorization: 'authorization-text',
+    },
+    onChange(info: any) {
+      if (info.file.status !== 'uploading') {
+        console.log(info.file, info.fileList);
+      }
+
+      if (info.file.status === 'done') {
+        message.success(`${info.file.name} file uploaded successfully`);
+        if (onUpload) {
+          onUpload();
+        }
+      } else if (info.file.status === 'error') {
+        message.error(`${info.file.name} file upload failed.`);
+      }
+    },
+  };
+
   return (
     <div className={`space-y-3 ${className}`}>
       {label && (
@@ -27,19 +51,20 @@ const FileUpload: React.FC<FileUploadProps> = ({
           <Image className="w-8 h-8 text-gray-400" />
         </div>
         
-        <div className="flex items-center gap-2 text-sm text-blue-600">
-          <Paperclip className="w-4 h-4" />
-          filename.png
-        </div>
+        {fileName && (
+          <div className="flex items-center gap-2 text-sm text-blue-600">
+            <span>{fileName}</span>
+          </div>
+        )}
         
-        <button
-          type="button"
-          onClick={onUpload}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          <Upload className="w-4 h-4" />
-          Upload
-        </button>
+        <Upload {...uploadProps}>
+          <Button 
+            icon={<UploadOutlined />}
+            className="flex items-center gap-2"
+          >
+            Upload
+          </Button>
+        </Upload>
       </div>
     </div>
   );
