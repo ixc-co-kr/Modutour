@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
 import { Card } from '../components/ui/Card';
 import { Input, Textarea } from '../components/ui/Input';
@@ -6,325 +6,480 @@ import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import FileUpload from '../components/ui/FileUpload';
 import Pagination from '../components/ui/Pagination';
-import { productAPI } from '../services/api';
 
 interface Product {
   id?: number;
   product_name: string;
-  price: number;
+  price: string;
+  product_url: string;
+  main_image: string;
   product_code: string;
-  product_link?: string;
-  main_image_url?: string;
-  category?: string;
-  description?: string;
-  source_site?: string;
+  category: string;
+  description: string;
+  created_at?: string;
+  updated_at?: string;
+  is_hidden?: boolean;
+  naver_ad_status?: string;
+  registered_at?: string;
 }
 
 const ShopManagement: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'new' | 'registered'>('new');
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  
-  // API 연동 상태
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [newProducts, setNewProducts] = useState<Product[]>([]);
+  const [registeredProducts, setRegisteredProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastCrawlTime, setLastCrawlTime] = useState<string>('');
+  const [isEditMode, setIsEditMode] = useState(false);
 
-  // 폼 입력 상태 추가
-  const [formData, setFormData] = useState({
+  // 편집 가능한 필드만 관리하는 상태 (신규 등록 탭용)
+  const [editableFields, setEditableFields] = useState({
     product_name: '',
-    price: '',
-    product_link: '',
-    product_code: '',
     category: '',
-    description: '',
-    main_image_url: '',
-    image_preview_url: ''
+    description: ''
   });
 
-  // 파일 업로드 핸들러 수정
-  const handleFileUpload = (fileName: string, imageUrl?: string) => {
-    setFormData(prev => ({
-      ...prev,
-      main_image_url: fileName,
-      image_preview_url: imageUrl || ''
-    }));
+  // 등록된 상품 탭에서 수정 시 사용할 상태
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  const API_BASE_URL = 'http://localhost:5001/api';
+  const isInitialMount = useRef(true);
+  const crawlingInterval = useRef<any>(null);
+  
+  // 페이지당 표시할 아이템 수
+  const ITEMS_PER_PAGE = 14;
+
+  // ⭐ CORS 대응 fetch 함수 개선
+  const fetchWithCors = async (url: string, options: RequestInit = {}) => {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        credentials: 'include',
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response;
+    } catch (error) {
+      console.error('API 요청 실패:', error);
+      throw error;
+    }
   };
 
-  // 더미 데이터 (신규 상품용) - 상태로 관리
-  const [newProducts, setNewProducts] = useState<Product[]>([
-    { 
-      product_name: '[신규] 제주도 한라산 트레킹 2박3일', 
-      price: 320000, 
-      product_code: 'NEW001',
-      product_link: 'https://example.com/jeju-hiking',
-      main_image_url: 'https://example.com/images/jeju.jpg',
-      category: '국내여행',
-      description: '제주도 한라산 트레킹 패키지',
-      source_site: 'manual'
-    },
-    { 
-      product_name: '[신규] 부산 해운대 바다축제 1박2일', 
-      price: 180000, 
-      product_code: 'NEW002',
-      product_link: 'https://example.com/busan-festival',
-      main_image_url: 'https://example.com/images/busan.jpg',
-      category: '국내여행',
-      description: '부산 해운대 바다축제 패키지',
-      source_site: 'manual'
-    },
-    { 
-      product_name: '[신규] 강릉 커피거리 투어 1박2일', 
-      price: 150000, 
-      product_code: 'NEW003',
-      product_link: 'https://example.com/gangneung-coffee',
-      main_image_url: 'https://example.com/images/gangneung.jpg',
-      category: '국내여행',
-      description: '강릉 커피거리 투어 패키지',
-      source_site: 'manual'
-    },
-  ]);
-
-  // 폼 입력 핸들러
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+  // 현재 탭의 전체 상품 목록 (숨김 상품 제외)
+  const allProducts = activeTab === 'new' 
+    ? newProducts 
+    : registeredProducts.filter(product => !product.is_hidden);
+  
+  // 현재 페이지에 표시할 상품들 계산
+  const getCurrentPageProducts = () => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return allProducts.slice(startIndex, endIndex);
   };
 
-  // 저장 후 등록 버튼 핸들러 (실제 DB 저장 기능 추가)
+  // 현재 페이지의 상품 목록
+  const currentProducts = getCurrentPageProducts();
+  
+  // 전체 페이지 수 계산
+  const totalPages = Math.ceil(allProducts.length / ITEMS_PER_PAGE);
+
+  // 페이지 변경 핸들러
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    setSelectedRowIndex(null);
+    setSelectedProduct(null);
+    setEditableFields({ product_name: '', category: '', description: '' });
+    setIsEditMode(false);
+    setEditingProduct(null);
+  };
+
+  // ⭐ 신규 상품 조회 개선
+  const fetchNewProducts = async () => {
+    try {
+      console.log('신규 상품 조회 시작...');
+      
+      const response = await fetchWithCors(`${API_BASE_URL}/products/new?t=${Date.now()}`);
+      const result = await response.json();
+      
+      console.log('신규 상품 API 응답:', result);
+      
+      if (result.success && result.data) {
+        // ⭐ API 응답 구조 확인 후 배열 설정
+        const products = Array.isArray(result.data) ? result.data : 
+                        (result.data.products && Array.isArray(result.data.products) ? result.data.products : []);
+        
+        setNewProducts(products);
+        console.log(`신규 상품 ${products.length}개 로딩 완료`);
+        
+        const newTotalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
+        if (currentPage > newTotalPages && newTotalPages > 0) {
+          setCurrentPage(1);
+        }
+        
+        if (products.length > 0 && activeTab !== 'new') {
+          setActiveTab('new');
+        }
+      } else {
+        console.error('신규 상품 조회 실패:', result.message);
+        setNewProducts([]);
+      }
+    } catch (error) {
+      console.error('신규 상품 조회 오류:', error);
+      setNewProducts([]);
+    }
+  };
+
+  // ⭐ 등록된 상품 조회 개선
+  const fetchRegisteredProducts = async () => {
+    try {
+      const response = await fetchWithCors(`${API_BASE_URL}/products/registered`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // ⭐ API 응답 구조 확인 후 배열 설정
+        const products = Array.isArray(result.data) ? result.data : 
+                        (result.data.products && Array.isArray(result.data.products) ? result.data.products : []);
+        
+        setRegisteredProducts(products);
+        console.log(`등록된 상품 ${products.length}개 조회 완료`);
+        
+        const visibleProducts = products.filter((product: Product) => !product.is_hidden);
+        const newTotalPages = Math.ceil(visibleProducts.length / ITEMS_PER_PAGE);
+        if (currentPage > newTotalPages && newTotalPages > 0) {
+          setCurrentPage(1);
+        }
+      } else {
+        console.error('등록된 상품 조회 실패:', result.message);
+        setRegisteredProducts([]);
+      }
+    } catch (error) {
+      console.error('등록된 상품 조회 오류:', error);
+      setRegisteredProducts([]);
+    }
+  };
+
+  // 크롤링 상태 확인
+  const fetchCrawlStatus = async () => {
+    try {
+      const response = await fetchWithCors(`${API_BASE_URL}/crawl/status`);
+      const result = await response.json();
+      
+      if (result.success && result.lastUpdate) {
+        setLastCrawlTime(result.lastUpdate);
+      }
+    } catch (error) {
+      console.error('크롤링 상태 확인 오류:', error);
+    }
+  };
+
+  // 신규 상품 크롤링 시작
+  const handleCrawlNewProducts = async () => {
+    if (isLoading) {
+      console.log('이미 크롤링 중입니다.');
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      console.log('수동 크롤링 시작 요청...');
+      
+      const response = await fetchWithCors(`${API_BASE_URL}/crawl/start`, {
+        method: 'POST',
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert('신규 상품 크롤링이 시작되었습니다.');
+        
+        if (crawlingInterval.current) {
+          clearInterval(crawlingInterval.current);
+        }
+        
+        let checkCount = 0;
+        const maxChecks = 20;
+        
+        crawlingInterval.current = setInterval(async () => {
+          checkCount++;
+          
+          try {
+            console.log(`크롤링 완료 확인 중... (${checkCount}/${maxChecks})`);
+            
+            const statusResponse = await fetchWithCors(`${API_BASE_URL}/crawl/status`);
+            const statusResult = await statusResponse.json();
+            
+            if (statusResult.success && statusResult.productCount > 0) {
+              if (crawlingInterval.current) {
+                clearInterval(crawlingInterval.current);
+                crawlingInterval.current = null;
+              }
+              
+              setIsLoading(false);
+              await fetchNewProducts();
+              await fetchCrawlStatus();
+              alert(`${statusResult.productCount}개의 신규 상품이 수집되었습니다.`);
+              setActiveTab('new');
+              setCurrentPage(1);
+              return;
+            }
+            
+            if (checkCount >= maxChecks) {
+              if (crawlingInterval.current) {
+                clearInterval(crawlingInterval.current);
+                crawlingInterval.current = null;
+              }
+              
+              setIsLoading(false);
+              await fetchNewProducts();
+              await fetchCrawlStatus();
+              alert('크롤링이 완료되었습니다. 상품 목록을 확인해주세요.');
+            }
+          } catch (error) {
+            console.error('크롤링 상태 확인 오류:', error);
+          }
+        }, 5000) as any;
+        
+      } else {
+        alert('크롤링 시작 실패: ' + result.message);
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('크롤링 요청 오류:', error);
+      alert('크롤링 요청 중 오류가 발생했습니다.');
+      setIsLoading(false);
+    }
+  };
+
+  // 컴포넌트 마운트 시에만 실행
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      console.log('컴포넌트 초기 마운트 - 데이터 로딩 시작');
+      
+      fetchNewProducts();
+      fetchRegisteredProducts();
+      fetchCrawlStatus();
+    }
+
+    return () => {
+      if (crawlingInterval.current) {
+        clearInterval(crawlingInterval.current);
+        crawlingInterval.current = null;
+      }
+    };
+  }, []);
+
+  // 탭 변경 시 데이터 새로고침 및 페이지 초기화
+  const handleTabChange = (tab: 'new' | 'registered') => {
+    setActiveTab(tab);
+    setSelectedRowIndex(null);
+    setSelectedProduct(null);
+    setEditableFields({ product_name: '', category: '', description: '' });
+    setIsEditMode(false);
+    setEditingProduct(null);
+    setCurrentPage(1);
+    
+    if (tab === 'new') {
+      fetchNewProducts();
+    } else {
+      fetchRegisteredProducts();
+    }
+  };
+
+  // 상품 행 클릭 처리
+  const handleProductClick = (index: number) => {
+    setSelectedRowIndex(index);
+    const product = currentProducts[index];
+    setSelectedProduct(product);
+    setIsEditMode(false);
+    setEditingProduct(null);
+    
+    // 신규 등록 탭에서는 편집 가능한 필드만 설정
+    if (activeTab === 'new') {
+      setEditableFields({
+        product_name: product.product_name,
+        category: product.category,
+        description: product.description
+      });
+    }
+  };
+
+  // ⭐ 상품 저장 후 등록 개선 (신규 등록 탭)
   const handleSaveProduct = async () => {
-    // 필수 필드 검증
-    if (!formData.product_name || !formData.price || !formData.product_code) {
-      alert('상품명, 가격, 상품코드는 필수 입력 항목입니다.');
+    if (!selectedProduct) {
+      alert('저장할 상품을 선택해주세요.');
+      return;
+    }
+
+    if (activeTab === 'new' && selectedProduct.id) {
+      try {
+        // 1. 먼저 상품 정보 업데이트
+        const updatedData = {
+          product_name: editableFields.product_name,
+          category: editableFields.category,
+          description: editableFields.description,
+          price: selectedProduct.price
+        };
+
+        const updateResponse = await fetchWithCors(`${API_BASE_URL}/products/new/${selectedProduct.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(updatedData)
+        });
+
+        const updateResult = await updateResponse.json();
+        
+        if (!updateResult.success) {
+          throw new Error(updateResult.message || '상품 정보 업데이트 실패');
+        }
+
+        // 2. 상품 등록
+        const registerResponse = await fetchWithCors(`${API_BASE_URL}/products/register`, {
+          method: 'POST',
+          body: JSON.stringify({ productCodes: [selectedProduct.product_code] })
+        });
+
+        const registerResult = await registerResponse.json();
+        
+        if (registerResult.success) {
+          alert('상품이 저장 후 등록되었습니다.');
+          
+          await fetchNewProducts();
+          await fetchRegisteredProducts();
+          
+          setSelectedProduct(null);
+          setSelectedRowIndex(null);
+          setEditableFields({ product_name: '', category: '', description: '' });
+        } else {
+          alert('상품 등록 실패: ' + registerResult.message);
+        }
+      } catch (error) {
+        console.error('상품 등록 오류:', error);
+        alert('상품 등록 중 오류가 발생했습니다.');
+      }
+    } else {
+      alert('등록된 상품은 수정할 수 없습니다.');
+    }
+  };
+
+  // 수정 버튼 클릭 (등록된 상품 탭)
+  const handleEditProduct = () => {
+    if (!selectedProduct) {
+      alert('수정할 상품을 선택해주세요.');
+      return;
+    }
+    
+    setIsEditMode(true);
+    setEditingProduct({ ...selectedProduct });
+  };
+
+  // ⭐ 수정 저장 개선 (등록된 상품 탭)
+  const handleSaveEdit = async () => {
+    if (!editingProduct || !editingProduct.id) {
+      alert('수정할 상품 정보가 없습니다.');
       return;
     }
 
     try {
-      setLoading(true);
-      
-      // 새 상품 객체 생성
-      const newProduct = {
-        product_name: formData.product_name,
-        price: parseInt(formData.price.replace(/,/g, '')) || 0,
-        product_code: formData.product_code,
-        product_link: formData.product_link,
-        main_image_url: formData.main_image_url,
-        category: formData.category,
-        description: formData.description
-      };
+      const response = await fetchWithCors(`${API_BASE_URL}/products/registered/${editingProduct.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          product_name: editingProduct.product_name,
+          category: editingProduct.category,
+          description: editingProduct.description,
+          price: editingProduct.price
+        })
+      });
 
-      // 백엔드 API로 실제 저장
-      const result = await productAPI.saveProduct(newProduct);
+      const result = await response.json();
       
       if (result.success) {
-        // 저장 성공 시 로컬 상태도 업데이트
-        const savedProduct = { ...newProduct, id: result.product_id, source_site: 'manual' };
+        alert('상품이 수정되었습니다.');
         
-        if (activeTab === 'new') {
-          setNewProducts(prev => [...prev, savedProduct]);
-        } else {
-          setProducts(prev => [...prev, savedProduct]);
-          // 등록된 상품 탭에서는 서버에서 최신 데이터 다시 가져오기
-          await fetchProducts();
-        }
-        
-        handleResetForm();
-        alert('상품이 데이터베이스에 성공적으로 저장되었습니다!');
-      }
-      
-    } catch (error: any) {
-      console.error('저장 오류:', error);
-      
-      // 백엔드 연결 실패 시 로컬 상태에만 저장 (임시)
-      const newProduct: Product = {
-        product_name: formData.product_name,
-        price: parseInt(formData.price.replace(/,/g, '')) || 0,
-        product_code: formData.product_code,
-        product_link: formData.product_link,
-        main_image_url: formData.main_image_url,
-        category: formData.category,
-        description: formData.description,
-        source_site: 'manual'
-      };
-
-      if (activeTab === 'new') {
-        setNewProducts(prev => [...prev, newProduct]);
+        await fetchRegisteredProducts();
+        setIsEditMode(false);
+        setEditingProduct(null);
+        setSelectedProduct(editingProduct);
       } else {
-        setProducts(prev => [...prev, newProduct]);
+        alert('상품 수정 실패: ' + result.message);
       }
-      
-      handleResetForm();
-      alert(`백엔드 연결 실패로 로컬에만 저장되었습니다.\n오류: ${error.message || '알 수 없는 오류'}`);
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('상품 수정 오류:', error);
+      alert('상품 수정 중 오류가 발생했습니다.');
     }
   };
 
-  // 초기화 버튼 핸들러
-  const handleResetForm = () => {
-    setFormData({
-      product_name: '',
-      price: '',
-      product_link: '',
-      product_code: '',
-      category: '',
-      description: '',
-      main_image_url: '',
-      image_preview_url: ''
-    });
-    setSelectedRowIndex(null);
-  };
+  // ⭐ 삭제 버튼 클릭 개선 (소프트 삭제)
+  const handleDeleteProduct = async () => {
+    if (!selectedProduct || !selectedProduct.id) {
+      alert('삭제할 상품을 선택해주세요.');
+      return;
+    }
 
-  // 백엔드에서 상품 데이터 가져오기 (제외 키워드 필터링 추가)
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // 제외 설정 조회
-      const excludeResponse = await fetch('http://localhost:5001/api/exclude-settings');
-      const excludeData = await excludeResponse.json();
-      
-      let excludeKeywords: string[] = [];
-      if (excludeData.success && excludeData.settings && excludeData.settings.exclude_keywords) {
-        excludeKeywords = excludeData.settings.exclude_keywords.split(',').map((k: string) => k.trim());
-      }
-      
-      // 상품 데이터 조회
-      const data = await productAPI.getProducts(currentPage, '');
-      let filteredProducts = data.products || [];
-      
-      // 제외 키워드 필터링 (프론트엔드에서 추가 필터링)
-      if (excludeKeywords.length > 0) {
-        filteredProducts = filteredProducts.filter((product: Product) => {
-          const productName = product.product_name.toLowerCase();
-          return !excludeKeywords.some(keyword => 
-            productName.includes(keyword.toLowerCase())
-          );
+    if (confirm('정말로 이 상품을 삭제하시겠습니까?')) {
+      try {
+        const response = await fetchWithCors(`${API_BASE_URL}/products/registered/${selectedProduct.id}`, {
+          method: 'DELETE'
         });
-      }
-      
-      setProducts(filteredProducts);
-      setLastUpdated(new Date().toLocaleString('ko-KR'));
-    } catch (error) {
-      console.error('상품 로딩 실패:', error);
-      setError('상품 데이터를 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  // 신규 상품 크롤링 실행
-  const handleNewProductCrawling = async () => {
-    try {
-      setLoading(true);
-      await productAPI.triggerCrawling();
-      await fetchProducts();
-      alert('신규 상품을 성공적으로 불러왔습니다.');
-    } catch (error) {
-      console.error('크롤링 실패:', error);
-      alert('신규 상품 불러오기에 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 컴포넌트 마운트 시 백엔드 연결 테스트 및 데이터 로드
-  useEffect(() => {
-    const initializeComponent = async () => {
-      try {
-        // 백엔드 연결 테스트
-        await productAPI.healthCheck();
-        console.log('백엔드 서버 연결 성공');
+        const result = await response.json();
         
-        // 등록된 상품 탭일 때 데이터 로드
-        if (activeTab === 'registered') {
-          await fetchProducts();
-        }
-      } catch (error) {
-        console.error('백엔드 서버 연결 실패:', error);
-        setError('백엔드 서버에 연결할 수 없습니다. 로컬 데이터만 사용됩니다.');
-      }
-    };
-
-    initializeComponent();
-  }, [activeTab, currentPage]);
-
-  // 현재 표시할 상품 데이터 결정 (신규 등록 탭에도 제외 키워드 적용)
-  const getCurrentProducts = async () => {
-    let currentProducts = activeTab === 'new' ? newProducts : products;
-    
-    // 신규 등록 탭에도 제외 키워드 적용
-    if (activeTab === 'new') {
-      try {
-        const excludeResponse = await fetch('http://localhost:5001/api/exclude-settings');
-        const excludeData = await excludeResponse.json();
-        
-        if (excludeData.success && excludeData.settings && excludeData.settings.exclude_keywords) {
-          const excludeKeywords = excludeData.settings.exclude_keywords.split(',').map((k: string) => k.trim());
+        if (result.success) {
+          alert('상품이 삭제되었습니다.');
           
-          if (excludeKeywords.length > 0) {
-            currentProducts = currentProducts.filter((product: Product) => {
-              const productName = product.product_name.toLowerCase();
-              return !excludeKeywords.some(keyword => 
-                productName.includes(keyword.toLowerCase())
-              );
-            });
-          }
+          await fetchRegisteredProducts();
+          setSelectedProduct(null);
+          setSelectedRowIndex(null);
+          setIsEditMode(false);
+          setEditingProduct(null);
+        } else {
+          alert('상품 삭제 실패: ' + result.message);
         }
       } catch (error) {
-        console.error('제외 설정 조회 실패:', error);
+        console.error('상품 삭제 오류:', error);
+        alert('상품 삭제 중 오류가 발생했습니다.');
       }
     }
-    
-    return currentProducts;
   };
 
-  // 필터링된 상품 목록을 위한 상태
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-
-  // 탭 변경 또는 데이터 변경 시 필터링된 상품 목록 업데이트
-  useEffect(() => {
-    const updateFilteredProducts = async () => {
-      const filtered = await getCurrentProducts();
-      setFilteredProducts(filtered);
-    };
-    
-    updateFilteredProducts();
-  }, [activeTab, newProducts, products]);
-
-  // 탭 변경 시 선택된 행 및 폼 초기화
-  const handleTabChange = (tab: 'new' | 'registered') => {
-    setActiveTab(tab);
-    setSelectedRowIndex(null);
-    setCurrentPage(1);
-    handleResetForm();
+  // 초기화
+  const handleResetForm = () => {
+    if (activeTab === 'new' && selectedProduct) {
+      setEditableFields({
+        product_name: selectedProduct.product_name,
+        category: selectedProduct.category,
+        description: selectedProduct.description
+      });
+    } else if (activeTab === 'registered' && isEditMode && selectedProduct) {
+      setEditingProduct({ ...selectedProduct });
+    } else {
+      setSelectedProduct(null);
+      setSelectedRowIndex(null);
+      setEditableFields({ product_name: '', category: '', description: '' });
+      setIsEditMode(false);
+      setEditingProduct(null);
+    }
   };
 
-  // 행 선택 시 폼에 데이터 로드
-  const handleRowSelect = (index: number) => {
-    setSelectedRowIndex(index);
-    const selectedProduct = filteredProducts[index];
-    
-    setFormData({
-      product_name: selectedProduct.product_name,
-      price: selectedProduct.price.toString(),
-      product_link: selectedProduct.product_link || '',
-      product_code: selectedProduct.product_code,
-      category: selectedProduct.category || '',
-      description: selectedProduct.description || '',
-      main_image_url: selectedProduct.main_image_url || '',
-      image_preview_url: selectedProduct.main_image_url || ''
-    });
+  // 현재 표시할 상품 정보 결정
+  const getDisplayProduct = () => {
+    if (activeTab === 'registered' && isEditMode && editingProduct) {
+      return editingProduct;
+    }
+    return selectedProduct;
   };
 
-  // 가격 포맷팅 함수
-  const formatPrice = (price: number) => {
-    return price.toLocaleString('ko-KR');
-  };
+  const displayProduct = getDisplayProduct();
 
   return (
     <div className="bg-white">
@@ -342,7 +497,7 @@ const ShopManagement: React.FC = () => {
                 : 'text-gray-500 border-transparent hover:text-gray-700'
             }`}
           >
-            신규 등록
+            신규 등록 ({newProducts.length})
           </button>
           <button
             onClick={() => handleTabChange('registered')}
@@ -352,30 +507,23 @@ const ShopManagement: React.FC = () => {
                 : 'text-gray-500 border-transparent hover:text-gray-700'
             }`}
           >
-            등록된 상품
+            등록된 상품 ({registeredProducts.filter(p => !p.is_hidden).length})
           </button>
         </div>
       </div>
 
       <div className="flex items-center gap-4 mb-6">
         <Button 
-          variant="new-product"
-          onClick={handleNewProductCrawling}
-          disabled={loading}
+          variant="new-product" 
+          onClick={handleCrawlNewProducts}
+          disabled={isLoading}
         >
-          {loading ? '불러오는 중...' : '신규 상품 불러오기'}
+          {isLoading ? '크롤링 중...' : '신규 상품 불러오기'}
         </Button>
         <div className="text-sm text-gray-500">
-          최근 수집: {lastUpdated || '2025-06-05 16:10:24'}
+          최근 수집: {lastCrawlTime || '데이터 없음'}
         </div>
       </div>
-
-      {/* 에러 메시지 표시 */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
-      )}
 
       <div className="flex gap-8">
         <div className="flex-1 max-w-2xl">
@@ -388,51 +536,47 @@ const ShopManagement: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-center py-8">
-                    데이터를 불러오는 중...
-                  </TableCell>
-                </TableRow>
-              ) : filteredProducts.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-center py-8">
-                    상품이 없습니다.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredProducts.map((product, index) => (
+              {currentProducts.length > 0 ? (
+                currentProducts.map((product, index) => (
                   <TableRow 
-                    key={product.product_code || index}
-                    onClick={() => handleRowSelect(index)}
+                    key={product.id || index}
+                    onClick={() => handleProductClick(index)}
                     isSelected={selectedRowIndex === index}
                   >
-                    <TableCell>{product.product_name}</TableCell>
-                    <TableCell>{formatPrice(product.price)}</TableCell>
+                    <TableCell ellipsis={true} title={product.product_name}>
+                      {product.product_name}
+                    </TableCell>
+                    <TableCell>{product.price}원</TableCell>
                     <TableCell>{product.product_code}</TableCell>
                   </TableRow>
                 ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center text-gray-500 py-8">
+                    {activeTab === 'new' 
+                      ? '신규 상품이 없습니다. "신규 상품 불러오기" 버튼을 클릭해주세요.' 
+                      : '등록된 상품이 없습니다. 신규 등록 탭에서 상품을 등록해주세요.'
+                    }
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
 
           <Pagination
             currentPage={currentPage}
-            totalPages={activeTab === 'new' ? 1 : 5}
-            onPageChange={setCurrentPage}
+            totalPages={totalPages || 1}
+            onPageChange={handlePageChange}
             className="mt-6"
           />
         </div>
 
-        {/* 우측 Card 영역 - 입력 폼 */}
+        {/* 우측 Card 영역 - 상품 상세 정보 */}
         <div 
           className="bg-white border border-gray-200"
           style={{
             width: '943px',
             height: '800px',
-            top: '194px',
-            left: '633px',
-            gap: '10px',
             borderRadius: '6px',
             borderWidth: '1px',
             paddingTop: '16px',
@@ -442,89 +586,211 @@ const ShopManagement: React.FC = () => {
           }}
         >
           <div className="space-y-4">
+            {/* 상품명 */}
             <Input
               label="상품명"
-              placeholder="인천출발 세부 자유여행 3박5일"
-              value={formData.product_name}
-              onChange={(e) => handleInputChange('product_name', e.target.value)}
+              value={
+                activeTab === 'new' 
+                  ? editableFields.product_name 
+                  : (isEditMode && editingProduct ? editingProduct.product_name : (displayProduct?.product_name || ''))
+              }
+              placeholder="상품을 선택하면 정보가 표시됩니다"
               helpText="100자 이내 / 특수문자 사용 금지 (!,@,# 등) / 광고성 표현 금지 (예: 최저가, 단하루 등)"
               variant="product-name"
+              disabled={activeTab === 'registered' && !isEditMode}
+              onChange={(e) => {
+                if (activeTab === 'new') {
+                  setEditableFields(prev => ({ ...prev, product_name: e.target.value }));
+                } else if (isEditMode && editingProduct) {
+                  setEditingProduct(prev => prev ? { ...prev, product_name: e.target.value } : null);
+                }
+              }}
             />
 
+            {/* 가격 */}
             <Input
               label="가격"
-              placeholder="489,000"
-              value={formData.price}
-              onChange={(e) => handleInputChange('price', e.target.value)}
+              value={
+                isEditMode && editingProduct 
+                  ? editingProduct.price 
+                  : (displayProduct?.price || '')
+              }
+              placeholder="가격"
               variant="price"
+              disabled={activeTab === 'new' || !isEditMode}
+              onChange={(e) => {
+                if (isEditMode && editingProduct) {
+                  setEditingProduct(prev => prev ? { ...prev, price: e.target.value } : null);
+                }
+              }}
             />
 
+            {/* 상품 링크 */}
             <Input
               label="상품 링크"
-              placeholder="https://tourmake.modetour.co.kr/Pkg/Itinerary/?PkgUrl=B7917693"
-              value={formData.product_link}
-              onChange={(e) => handleInputChange('product_link', e.target.value)}
+              value={
+                isEditMode && editingProduct 
+                  ? editingProduct.product_url 
+                  : (displayProduct?.product_url || '')
+              }
+              placeholder="상품 링크"
               variant="product-link"
+              disabled={activeTab === 'new' || !isEditMode}
+              onChange={(e) => {
+                if (isEditMode && editingProduct) {
+                  setEditingProduct(prev => prev ? { ...prev, product_url: e.target.value } : null);
+                }
+              }}
             />
 
-            <FileUpload
-              label="대표 이미지"
-              fileName={formData.main_image_url}
-              onUpload={handleFileUpload}
-            />
+            {/* 대표 이미지 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">대표 이미지</label>
+              {displayProduct?.main_image ? (
+                <div className="flex items-center gap-4">
+                  <img 
+                    src={displayProduct.main_image} 
+                    alt="상품 이미지" 
+                    className="w-20 h-20 object-cover rounded border"
+                    onError={(e) => {
+                      e.currentTarget.src = '/placeholder-image.png';
+                    }}
+                  />
+                  <div className="text-sm text-gray-600">
+                    {displayProduct.main_image}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  이미지를 선택해주세요 {activeTab === 'new' || !isEditMode ? '(편집 불가)' : ''}
+                </div>
+              )}
+            </div>
 
+            {/* 상품코드 */}
             <Input
               label="상품코드"
-              placeholder="AVP636KE51"
-              value={formData.product_code}
-              onChange={(e) => handleInputChange('product_code', e.target.value)}
+              value={
+                isEditMode && editingProduct 
+                  ? editingProduct.product_code 
+                  : (displayProduct?.product_code || '')
+              }
+              placeholder="상품코드"
               variant="product-code"
+              disabled={true}
+              onChange={() => {}}
             />
 
+            {/* 상품 카테고리 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">상품 카테고리</label>
               <div className="grid grid-cols-3 gap-2">
                 <Select 
-                  value={formData.category}
-                  onChange={(e) => handleInputChange('category', e.target.value)}
+                  value={
+                    activeTab === 'new' 
+                      ? editableFields.category 
+                      : (isEditMode && editingProduct ? editingProduct.category : (displayProduct?.category || ''))
+                  }
+                  disabled={activeTab === 'registered' && !isEditMode}
+                  onChange={(e) => {
+                    if (activeTab === 'new') {
+                      setEditableFields(prev => ({ ...prev, category: e.target.value }));
+                    } else if (isEditMode && editingProduct) {
+                      setEditingProduct(prev => prev ? { ...prev, category: e.target.value } : null);
+                    }
+                  }}
                 >
-                  <option value="">선택하세요</option>
-                  <option value="국내여행">국내여행</option>
+                  <option value="">카테고리 선택</option>
+                  <option value="여행/항공/여의">여행/항공/여의</option>
                   <option value="해외여행">해외여행</option>
-                  <option value="호텔">호텔</option>
+                  <option value="국내여행">국내여행</option>
                 </Select>
-                <Select>
-                  <option>해외여행</option>
+                <Select disabled={true}>
+                  <option>세부 카테고리</option>
                 </Select>
-                <Select>
-                  <option>항해여행지/기타</option>
+                <Select disabled={true}>
+                  <option>상세 분류</option>
                 </Select>
               </div>
             </div>
 
+            {/* 상품설명 */}
             <Textarea
               label="상품설명"
-              placeholder="#2도시여행 #벤트펍달링 #푸켓발견김과 #피피섬어장"
-              value={formData.description}
-              onChange={(e) => handleInputChange('description', e.target.value)}
+              value={
+                activeTab === 'new' 
+                  ? editableFields.description 
+                  : (isEditMode && editingProduct ? editingProduct.description : (displayProduct?.description || ''))
+              }
+              placeholder="상품 설명"
               helpText="HTML 태그 불가 / 1000자 이내 권장"
               variant="product-description"
+              disabled={activeTab === 'registered' && !isEditMode}
+              onChange={(e) => {
+                if (activeTab === 'new') {
+                  setEditableFields(prev => ({ ...prev, description: e.target.value }));
+                } else if (isEditMode && editingProduct) {
+                  setEditingProduct(prev => prev ? { ...prev, description: e.target.value } : null);
+                }
+              }}
             />
 
+            {/* 버튼 영역 */}
             <div className="flex gap-2 mt-8">
-              <Button 
-                variant={activeTab === 'registered' ? 'edit' : 'save'}
-                onClick={handleSaveProduct}
-                disabled={loading}
-              >
-                {loading ? '저장 중...' : (activeTab === 'registered' ? '수정' : '저장 후 등록')}
-              </Button>
-              <Button 
-                variant={activeTab === 'registered' ? 'delete' : 'reset'}
-                onClick={handleResetForm}
-              >
-                {activeTab === 'registered' ? '삭제' : '초기화'}
-              </Button>
+              {activeTab === 'new' ? (
+                <>
+                  <Button 
+                    variant="save" 
+                    onClick={handleSaveProduct}
+                    disabled={!selectedProduct}
+                  >
+                    저장 후 등록
+                  </Button>
+                  <Button 
+                    variant="reset" 
+                    onClick={handleResetForm}
+                  >
+                    초기화
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {isEditMode ? (
+                    <>
+                      <Button 
+                        variant="save" 
+                        onClick={handleSaveEdit}
+                        disabled={!editingProduct}
+                      >
+                        저장
+                      </Button>
+                      <Button 
+                        variant="reset" 
+                        onClick={handleResetForm}
+                      >
+                        취소
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button 
+                        variant="edit" 
+                        onClick={handleEditProduct}
+                        disabled={!selectedProduct}
+                      >
+                        수정
+                      </Button>
+                      <Button 
+                        variant="delete" 
+                        onClick={handleDeleteProduct}
+                        disabled={!selectedProduct}
+                      >
+                        삭제
+                      </Button>
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

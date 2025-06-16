@@ -1,3 +1,4 @@
+import { floatButtonPrefixCls } from 'antd/es/float-button/FloatButton';
 import React from 'react';
 
 interface InputProps {
@@ -8,10 +9,9 @@ interface InputProps {
   className?: string;
   label?: string;
   helpText?: string;
+  disabled?: boolean; // 이미 있음
   required?: boolean;
   variant?: 'default' | 'product-name' | 'price' | 'product-link' | 'product-code' | 'category-1' | 'category-2' | 'category-3';
-  readOnly?: boolean;  // readOnly prop 추가
-  disabled?: boolean;  // disabled prop 추가
 }
 
 const Input: React.FC<InputProps> = ({
@@ -22,23 +22,15 @@ const Input: React.FC<InputProps> = ({
   className = '',
   label,
   helpText,
+  disabled = false,
   required = false,
-  variant = 'default',
-  readOnly = false,  // 기본값 설정
-  disabled = false   // 기본값 설정
+  variant = 'default'
 }) => {
   // 각 variant별 스타일 정의
   const getVariantStyle = () => {
-    const baseStyle = {
-      backgroundColor: readOnly ? '#f9fafb' : disabled ? '#f3f4f6' : 'white',
-      cursor: readOnly ? 'default' : disabled ? 'not-allowed' : 'text',
-      opacity: disabled ? 0.5 : 1
-    };
-
     switch (variant) {
       case 'product-name':
         return {
-          ...baseStyle,
           width: '895px',
           height: '32px',
           gap: '10px',
@@ -54,7 +46,6 @@ const Input: React.FC<InputProps> = ({
         };
       case 'price':
         return {
-          ...baseStyle,
           width: '120px',
           height: '32px',
           gap: '8px',
@@ -69,7 +60,6 @@ const Input: React.FC<InputProps> = ({
         };
       case 'product-link':
         return {
-          ...baseStyle,
           width: '895px',
           height: '32px',
           gap: '10px',
@@ -85,7 +75,6 @@ const Input: React.FC<InputProps> = ({
         };
       case 'product-code':
         return {
-          ...baseStyle,
           width: '344px',
           height: '32px',
           gap: '10px',
@@ -101,7 +90,6 @@ const Input: React.FC<InputProps> = ({
         };
       case 'category-1':
         return {
-          ...baseStyle,
           width: '160px',
           height: '32px',
           gap: '4px',
@@ -114,7 +102,6 @@ const Input: React.FC<InputProps> = ({
         };
       case 'category-2':
         return {
-          ...baseStyle,
           width: '144px',
           height: '32px',
           top: '562px',
@@ -127,7 +114,6 @@ const Input: React.FC<InputProps> = ({
         };
       case 'category-3':
         return {
-          ...baseStyle,
           width: '144px',
           height: '32px',
           top: '562px',
@@ -139,7 +125,7 @@ const Input: React.FC<InputProps> = ({
           letterSpacing: '0%'
         };
       default:
-        return baseStyle;
+        return {};
     }
   };
 
@@ -161,7 +147,7 @@ const Input: React.FC<InputProps> = ({
     fontSize: '14px',
     lineHeight: '22px',
     letterSpacing: '0%',
-    color: '#000000E0'
+    color: '#000000E0' // var(--Input-colorText, #000000E0)
   };
 
   return (
@@ -176,12 +162,11 @@ const Input: React.FC<InputProps> = ({
         type={type}
         placeholder={placeholder}
         value={value}
-        onChange={readOnly || disabled ? undefined : onChange}  // readOnly나 disabled일 때 onChange 비활성화
-        readOnly={readOnly}  // readOnly 속성 추가
-        disabled={disabled}  // disabled 속성 추가
+        onChange={onChange}
+        disabled={disabled} // disabled 속성 추가
         className={variant === 'default' ? 
-          `w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}` :
-          `px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}`
+          `w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${disabled ? 'bg-gray-100 cursor-not-allowed opacity-60' : 'bg-white'} ${className}` :
+          `px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${disabled ? 'bg-gray-100 cursor-not-allowed opacity-60' : 'bg-white'} ${className}`
         }
         style={inputStyle}
       />
@@ -202,10 +187,9 @@ interface TextareaProps {
   label?: string;
   helpText?: string;
   rows?: number;
+  disabled?: boolean; // disabled 속성 추가
   required?: boolean;
   variant?: 'default' | 'product-description';
-  readOnly?: boolean;  // readOnly prop 추가
-  disabled?: boolean;  // disabled prop 추가
 }
 
 const Textarea: React.FC<TextareaProps> = ({
@@ -216,22 +200,14 @@ const Textarea: React.FC<TextareaProps> = ({
   label,
   helpText,
   rows = 3,
+  disabled = false, // 기본값 설정
   required = false,
-  variant = 'default',
-  readOnly = false,  // 기본값 설정
-  disabled = false   // 기본값 설정
+  variant = 'default'
 }) => {
   // 상품설명 variant 스타일
   const getVariantStyle = () => {
-    const baseStyle = {
-      backgroundColor: readOnly ? '#f9fafb' : disabled ? '#f3f4f6' : 'white',
-      cursor: readOnly ? 'default' : disabled ? 'not-allowed' : 'text',
-      opacity: disabled ? 0.5 : 1
-    };
-
     if (variant === 'product-description') {
       return {
-        ...baseStyle,
         width: '895px',
         height: '32px',
         gap: '10px',
@@ -246,7 +222,7 @@ const Textarea: React.FC<TextareaProps> = ({
         letterSpacing: '0%'
       };
     }
-    return baseStyle;
+    return {};
   };
 
   // 기본 글꼴 스타일
@@ -275,7 +251,7 @@ const Textarea: React.FC<TextareaProps> = ({
     fontSize: '14px',
     lineHeight: '22px',
     letterSpacing: '0%',
-    color: '#000000E0'
+    color: '#000000E0' // var(--Input-colorText, #000000E0)
   };
 
   return (
@@ -289,13 +265,12 @@ const Textarea: React.FC<TextareaProps> = ({
       <textarea
         placeholder={placeholder}
         value={value}
-        onChange={readOnly || disabled ? undefined : onChange}  // readOnly나 disabled일 때 onChange 비활성화
-        readOnly={readOnly}  // readOnly 속성 추가
-        disabled={disabled}  // disabled 속성 추가
+        onChange={onChange}
+        disabled={disabled} // disabled 속성 추가
         rows={variant === 'product-description' ? 1 : rows}
         className={variant === 'default' ? 
-          `w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}` :
-          `px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${className}`
+          `w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${disabled ? 'bg-gray-100 cursor-not-allowed opacity-60' : 'bg-white'} ${className}` :
+          `px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${disabled ? 'bg-gray-100 cursor-not-allowed opacity-60' : 'bg-white'} ${className}`
         }
         style={textareaStyle}
       />

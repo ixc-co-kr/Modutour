@@ -10,12 +10,13 @@ const Table: React.FC<TableProps> = ({ children, className = '', style }) => {
   const tableStyle = {
     width: '585px',
     height: '804px',
+    tableLayout: 'fixed' as const, // 고정 레이아웃으로 설정
     ...style
   };
 
   return (
     <div className={`bg-white rounded-lg border border-gray-200 overflow-hidden ${className}`} style={tableStyle}>
-      <table className="w-full table-fixed border-collapse">
+      <table className="w-full border-collapse" style={tableStyle}>
         {children}
       </table>
     </div>
@@ -106,34 +107,53 @@ interface TableCellProps {
   className?: string;
   style?: React.CSSProperties;
   title?: string;
-  colSpan?: number;  // colSpan prop 추가
-  rowSpan?: number;  // rowSpan prop 추가
+  colSpan?: number;
+  ellipsis?: boolean; // 말줄임표 옵션 추가
 }
 
 const TableCell: React.FC<TableCellProps> = ({ 
   children, 
   className = '', 
   style, 
-  title,
-  colSpan,  // colSpan 추가
-  rowSpan   // rowSpan 추가
+  title, 
+  colSpan,
+  ellipsis = false 
 }) => {
   const cellStyle = {
-    width: '585px',
     height: '38px',
     borderRight: '1px solid #e5e7eb',
+    ...(ellipsis && {
+      maxWidth: '0', // 유연한 너비 설정
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap' as const
+    }),
     ...style
   };
 
+  // ellipsis가 true이고 title이 없으면 children을 title로 사용
+  const cellTitle = ellipsis && !title && typeof children === 'string' ? children : title;
+
   return (
     <td 
-      className={`px-6 py-4 whitespace-nowrap text-sm text-gray-900 ${className}`}
+      className={`px-6 py-4 text-sm text-gray-900 ${ellipsis ? '' : 'whitespace-nowrap'} ${className}`}
       style={cellStyle}
-      title={title}
-      colSpan={colSpan}  // colSpan 속성 추가
-      rowSpan={rowSpan}  // rowSpan 속성 추가
+      title={cellTitle}
+      colSpan={colSpan}
     >
-      {children}
+      {ellipsis ? (
+        <div 
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {children}
+        </div>
+      ) : (
+        children
+      )}
     </td>
   );
 };

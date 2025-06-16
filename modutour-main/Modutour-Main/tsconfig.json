@@ -18,11 +18,12 @@
       "resolveJsonModule": true,
       "isolatedModules": true,
       "noEmit": true,
-      "jsx": "react-jsx"
+      "jsx": "react-jsx",
+      
     },
     "include": [
       "src/**/*"
-    ],
+, "../Backend/services/NaverAdService.js"    ],
     "exclude": [
       "node_modules",
       "build"
