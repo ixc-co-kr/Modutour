@@ -15,151 +15,298 @@ class ModeTourCrawler {
     this.usedProductCodes = new Set();
   }
 
-  // ⭐ URL 정리 함수 추가
+  // ⭐ 강화된 URL 정리 함수
   cleanProductUrl(url) {
     try {
-      if (!url || typeof url !== 'string') {
-        return url;
-      }
-
-      const urlObj = new URL(url);
-      
-      // 기본 URL만 유지하고 불필요한 파라미터 제거
-      const cleanUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-      
-      // Pnum 파라미터만 유지
+      if (!url || typeof url !== 'string') return url;
+      let cleanUrl = url.trim();
+      cleanUrl = cleanUrl.replace(/[&?](napm|utm_[^=]*|_[^=]*|ref|source)=[^&]*/g, '');
+      const urlObj = new URL(cleanUrl);
+      const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
       const pnum = urlObj.searchParams.get('Pnum');
-      if (pnum) {
-        return `${cleanUrl}?Pnum=${pnum}`;
-      }
-      
-      return cleanUrl;
+      return pnum ? `${baseUrl}?Pnum=${pnum}` : baseUrl;
     } catch (error) {
       console.error('URL 정리 실패:', error);
-      return url; // 에러 시 원본 URL 반환
+      return url.replace(/[&?]napm=.*$/, '');
     }
   }
 
-  // 정확한 모두투어 HTML 구조에 맞는 상품 정보 추출
-  async extractRealProductsFromPage(pageUrl) {
-    try {
-      console.log(`실제 상품 정보 추출 중: ${pageUrl}`);
+  // ⭐ 상품코드 정리 함수
+  cleanProductCode(code) {
+    if (!code) return code;
+    return code.replace(/_+$/, '');
+  }
+
+  // ⭐ 수정된 상품명 추출 함수 (대괄호 밖의 텍스트 추출)
+  extractProductName($item, $) {
+    let productName = '';
+    
+    const titleDiv = $item.find('.detail_view .title');
+    if (titleDiv.length > 0) {
+      const fullTitle = titleDiv.text().trim();
+      let cleanedTitle = fullTitle.replace(/\[[^\]]*\]/g, '').trim();
+      cleanedTitle = cleanedTitle.replace(/\s+/g, ' ').trim();
+      cleanedTitle = cleanedTitle.replace(/^[A-Z]{2,4}\d{2,6}\s*/, '').trim();
       
-      const response = await axios.get(pageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'ko-KR,ko;q=0.8,en-US;q=0.5,en;q=0.3',
-          'Referer': 'https://tourmake.modetour.co.kr/'
-        },
-        timeout: 30000
-      });
-
-      if (response.status !== 200) {
-        throw new Error(`HTTP ${response.status}`);
+      if (cleanedTitle.length > 3) {
+        productName = cleanedTitle;
+        console.log(`✅ 대괄호 제거 후 상품명: ${productName}`);
       }
-
-      const $ = cheerio.load(response.data);
-      const products = [];
-
-      // ViewByProduct 영역 찾기
-      const productList = $('#ViewByProduct');
-      if (productList.length === 0) {
-        console.log('⚠️ #ViewByProduct 요소를 찾을 수 없습니다.');
-        return this.extractFromText($('body').text(), pageUrl);
-      }
-
-      const productItems = productList.find('li');
-      console.log(`${productItems.length}개의 상품 아이템 발견`);
-
-      for (let i = 0; i < productItems.length; i++) {
-        const $item = $(productItems[i]);
-        
-        try {
-          // 1. 기본 상품 정보 추출 (상품코드, 상품설명)
-          const basicInfo = this.extractBasicProductInfo($item, $);
+    }
+    
+    if (!productName) {
+      const fullText = $item.text();
+      const patterns = [
+        /\][^[\]]+\[/,
+        /\]\s*([^[\]]{5,}?)(?:\s*\[|$)/,
+        /^([^[\]]{5,}?)\s*\[/
+      ];
+      
+      for (const pattern of patterns) {
+        const match = fullText.match(pattern);
+        if (match) {
+          let extracted = match[1] || match[0];
+          extracted = extracted.replace(/[\[\]]/g, '').trim();
+          extracted = extracted.replace(/\s+/g, ' ').trim();
           
-          if (basicInfo.productCode) {
-            // 2. 다단계 테이블 데이터 추출 (AJAX → Selenium → 기본)
-            const tableProducts = await this.extractTableProducts($item, $, basicInfo, pageUrl);
-            
-            if (tableProducts.length > 0) {
-              products.push(...tableProducts);
-              console.log(`✅ 상품 ${i + 1}에서 ${tableProducts.length}개 테이블 상품 추출 완료`);
-            } else {
-              // ⭐ 테이블 데이터가 없으면 기본 상품 정보로 생성 (URL 정리 적용)
-              const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
-              
-              const product = {
-                product_name: `[모두투어] ${basicInfo.productName}`,
-                product_code: basicInfo.productCode,
-                price: basicInfo.price || `${(Math.floor(Math.random() * 500) + 500) * 1000}`,
-                product_url: cleanedUrl,
-                main_image: basicInfo.imageUrl,
-                category: '해외여행',
-                description: basicInfo.description || `${basicInfo.productName} 상품입니다.`,
-                source_page: pageUrl
-              };
-              products.push(product);
-            }
+          if (extracted.length > 3 && 
+              !extracted.match(/\d{4}-\d{2}-\d{2}/) &&
+              !extracted.match(/\d{2}월\s*\d{2}일/)) {
+            productName = extracted;
+            console.log(`✅ 패턴 매칭으로 상품명: ${productName}`);
+            break;
           }
-        } catch (e) {
-          console.log(`상품 ${i + 1} 처리 오류:`, e.message);
         }
       }
+    }
+    
+    if (productName && !productName.startsWith('[모두투어]')) {
+      productName = `[모두투어] ${productName}`;
+    }
+    
+    return productName;
+  }
 
-      if (products.length === 0) {
-        console.log('⚠️ 실제 상품을 찾지 못했습니다. 텍스트 기반 추출 시도...');
-        const textBasedProducts = this.extractFromText($('body').text(), pageUrl);
-        products.push(...textBasedProducts);
+  // ⭐ 수정된 이미지 URL 추출 함수 (상품코드 좌측 영역)
+  extractImageUrl($item, $) {
+    console.log('=== 상품코드 좌측 영역에서 이미지 추출 시작 ===');
+    
+    const imageSelectors = [
+      '.top_wrap img',
+      '.top_wrap .representative img',
+      '.btn_view_departure_date ~ img',
+      'img[src*="modetour.com"]',
+      'img[src*="eagle/photoimg"]',
+      'img[src*="Bfile"]',
+      '.representative img',
+      'img'
+    ];
+    
+    for (const selector of imageSelectors) {
+      const imgElements = $item.find(selector);
+      
+      for (let i = 0; i < imgElements.length; i++) {
+        const imgEl = $(imgElements[i]);
+        let src = imgEl.attr('src') || imgEl.attr('data-src') || imgEl.attr('data-lazy');
+        
+        if (src && src.trim() !== '' && src.trim() !== '#') {
+          if (src.startsWith('//')) {
+            src = `https:${src}`;
+          } else if (src.startsWith('/')) {
+            src = `https://tourmake.modetour.co.kr${src}`;
+          }
+          
+          if (this.isValidProductImage(src)) {
+            console.log(`✅ ${selector}에서 유효한 이미지 발견: ${src}`);
+            return src;
+          }
+        }
       }
+    }
+    
+    console.log('⚠️ 상품코드 좌측 영역에서 이미지를 찾지 못했습니다.');
+    return '';
+  }
 
-      return products;
+  // ⭐ 이미지 유효성 검증 함수
+  isValidProductImage(imageUrl) {
+    if (!imageUrl || imageUrl === '') return false;
+    try { new URL(imageUrl); } catch { return false; }
+    
+    const validPatterns = [
+      'img.modetour.com', 'image.modetour.com', 'tourmake.modetour.co.kr',
+      'eagle/photoimg', 'Bfile', '.jpg', '.jpeg', '.png', '.gif', '.webp'
+    ];
+    const excludePatterns = ['placeholder', 'no-image', 'default', 'loading', 'spinner', 'blank', 'empty', '1x1', 'logo', 'icon'];
+    
+    const hasValidPattern = validPatterns.some(pattern => imageUrl.toLowerCase().includes(pattern.toLowerCase()));
+    const isExcluded = excludePatterns.some(pattern => imageUrl.toLowerCase().includes(pattern));
+    
+    return hasValidPattern && !isExcluded;
+  }
+
+  // ⭐ Alert 처리가 추가된 안전한 이미지 추출 함수
+  async extractImageFromProductDetailPageSafe(driver, productUrl, productName) {
+    try {
+      console.log(`🔍 상품 상세 페이지에서 이미지 추출 시도: ${productUrl}`);
+      
+      const originalUrl = await driver.getCurrentUrl();
+      
+      // 상세 페이지로 이동
+      await driver.get(productUrl);
+      await driver.sleep(3000);
+      
+      // ⭐ Alert 처리
+      try {
+        const alert = await driver.switchTo().alert();
+        const alertText = await alert.getText();
+        console.log(`⚠️ Alert 감지: ${alertText}`);
+        await alert.accept();
+        
+        // Alert가 뜨면 원래 페이지로 돌아가기
+        await driver.get(originalUrl);
+        await driver.sleep(2000);
+        return '';
+      } catch (alertError) {
+        // Alert가 없으면 정상 진행
+      }
+      
+      // 이미지 추출 로직
+      const imageSelectors = [
+        '#container > div.contents_wrap.itinerary > div.itinerary__contents > section.itinerary__merchandise-info > div.merchandise-info__brief-info.brief-info > div.brief-info__head-left > div.brief-info__gallery > div > div.bx-viewport > ul > li:nth-child(1) > img',
+        '.brief-info__gallery img',
+        'img[src*="modetour.com"]',
+        'img'
+      ];
+      
+      let foundImageUrl = '';
+      
+      for (const selector of imageSelectors) {
+        try {
+          const imgElements = await driver.findElements(By.css(selector));
+          
+          for (const imgEl of imgElements) {
+            const src = await imgEl.getAttribute('src');
+            if (src && this.isValidProductImage(this.normalizeImageUrl(src))) {
+              foundImageUrl = this.normalizeImageUrl(src);
+              console.log(`✅ 상세 페이지에서 유효한 이미지 발견: ${foundImageUrl}`);
+              break;
+            }
+          }
+          
+          if (foundImageUrl) break;
+        } catch (selectorError) {
+          continue;
+        }
+      }
+      
+      // 원래 페이지로 돌아가기
+      await driver.get(originalUrl);
+      await driver.sleep(2000);
+      
+      return foundImageUrl;
       
     } catch (error) {
-      console.error(`페이지 크롤링 실패 (${pageUrl}):`, error.message);
-      return [];
+      console.error(`상세 페이지 이미지 추출 실패 (${productUrl}):`, error.message);
+      
+      try {
+        const currentUrl = await driver.getCurrentUrl();
+        if (!currentUrl.includes('pkg/?at=')) {
+          await driver.navigate().back();
+          await driver.sleep(2000);
+        }
+      } catch (backError) {
+        console.error('원래 페이지로 돌아가기 실패:', backError.message);
+      }
+      
+      return '';
     }
   }
 
-  // 기본 상품 정보 추출 (상품코드, 상품설명)
+  // ⭐ 이미지 URL 정규화 함수
+  normalizeImageUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return '';
+    
+    let cleanUrl = imageUrl.trim();
+    
+    if (cleanUrl.startsWith('//')) {
+      return `https:${cleanUrl}`;
+    } else if (cleanUrl.startsWith('/')) {
+      return `https://tourmake.modetour.co.kr${cleanUrl}`;
+    } else if (cleanUrl.startsWith('http')) {
+      return cleanUrl;
+    } else if (cleanUrl.includes('modetour') && !cleanUrl.startsWith('http')) {
+      return `https://${cleanUrl}`;
+    }
+    
+    return cleanUrl;
+  }
+
+  // ⭐ 기본 상품 정보 추출 (설명 필드 강화)
   extractBasicProductInfo($item, $) {
     try {
       console.log('=== 기본 상품 정보 추출 시작 ===');
       
-      // 1. 상품 코드 추출 (button의 onclick에서)
       let productCode = '';
       const button = $item.find('.btn_view_departure_date');
       if (button.length > 0) {
         const onclickAttr = button.attr('onclick');
-        console.log('onclick 속성:', onclickAttr);
         if (onclickAttr) {
           const codeMatch = onclickAttr.match(/'([A-Z0-9]+)'/);
           if (codeMatch) {
-            productCode = codeMatch[1];
+            productCode = this.cleanProductCode(codeMatch[1]);
             console.log('상품코드 추출:', productCode);
           }
         }
       }
 
-      // 2. 상품명 추출 (.title에서 [코드] 제거)
-      let productName = '';
-      const titleDiv = $item.find('.detail_view .title');
-      if (titleDiv.length > 0) {
-        const fullTitle = titleDiv.text().trim();
-        productName = fullTitle.replace(/^\[[A-Z0-9]+\]\s*/, '').trim();
-        console.log('상품명 추출:', productName);
-      }
+      const productName = this.extractProductName($item, $);
+      console.log('상품명 추출:', productName);
 
-      // 3. 상품 설명 추출 (.desc에서)
+      // ⭐ 설명 추출 강화
       let description = '';
+      
+      // 1순위: .detail_view .desc에서 추출
       const descDiv = $item.find('.detail_view .desc');
       if (descDiv.length > 0) {
         description = descDiv.text().trim();
-        console.log('설명 추출:', description.substring(0, 50));
+        console.log('설명 추출 (desc):', description.substring(0, 100));
+      }
+      
+      // 2순위: .simple_info에서 추출
+      if (!description) {
+        const simpleInfo = $item.find('.simple_info');
+        if (simpleInfo.length > 0) {
+          const infoText = simpleInfo.text().trim();
+          // 가격 정보가 아닌 설명 부분만 추출
+          const cleanDesc = infoText.replace(/상품가격.*?원/g, '').trim();
+          if (cleanDesc.length > 10) {
+            description = cleanDesc;
+            console.log('설명 추출 (simple_info):', description.substring(0, 100));
+          }
+        }
+      }
+      
+      // 3순위: 전체 텍스트에서 해시태그나 특징 추출
+      if (!description) {
+        const fullText = $item.text();
+        
+        // 해시태그 패턴 찾기 (#으로 시작하는 텍스트)
+        const hashtagMatch = fullText.match(/#[^#\n]+/g);
+        if (hashtagMatch && hashtagMatch.length > 0) {
+          description = hashtagMatch.join(' ').trim();
+          console.log('설명 추출 (해시태그):', description.substring(0, 100));
+        }
+      }
+      
+      // 4순위: 기본 설명 생성
+      if (!description && productName) {
+        description = `${productName.replace('[모두투어]', '').trim()} 상품입니다. 모두투어에서 제공하는 특가 여행 상품을 만나보세요.`;
+        console.log('설명 생성 (기본):', description.substring(0, 100));
       }
 
-      // 4. 가격 추출 (.simple_info에서)
+      console.log('최종 설명 길이:', description.length);
+
       let price = '';
       const simpleInfo = $item.find('.simple_info');
       if (simpleInfo.length > 0) {
@@ -170,51 +317,23 @@ class ModeTourCrawler {
           if (title2.length > 0 && title2.text().includes('상품가격')) {
             const strongEl = $priceItem.find('strong');
             if (strongEl.length > 0) {
-              const priceText = strongEl.text().trim();
-              price = priceText.replace(/[^0-9]/g, '');
-              console.log('가격 추출:', price);
+              price = strongEl.text().replace(/[^0-9]/g, '');
             }
           }
         });
       }
 
-      // 5. 이미지 URL 추출 (.representative img에서)
-      let imageUrl = '';
-      const imgEl = $item.find('.representative img');
-      if (imgEl.length > 0) {
-        let src = imgEl.attr('src');
-        if (src) {
-          if (src.startsWith('//')) {
-            imageUrl = `https:${src}`;
-          } else if (src.startsWith('/')) {
-            imageUrl = `https://tourmake.modetour.co.kr${src}`;
-          } else if (src.startsWith('http')) {
-            imageUrl = src;
-          }
-          console.log('이미지 URL 추출:', imageUrl);
-        }
-      }
+      const imageUrl = this.extractImageUrl($item, $);
+      console.log('이미지 URL 추출:', imageUrl);
 
-      return {
-        productCode,
-        productName,
-        description,
-        price,
-        imageUrl
-      };
+      return { productCode, productName, description, price, imageUrl };
     } catch (error) {
       console.error('기본 상품 정보 추출 실패:', error.message);
-      return {
-        productCode: '',
-        productName: '',
-        description: '',
-        price: '',
-        imageUrl: ''
-      };
+      return { productCode: '', productName: '', description: '', price: '', imageUrl: '' };
     }
   }
 
-  // 다단계 테이블 데이터 추출 (AJAX → Selenium → 기본) - 수정됨
+  // ⭐ 통합된 테이블 데이터 추출
   async extractTableProducts($item, $, basicInfo, pageUrl) {
     try {
       console.log('=== 테이블 상품 추출 시작 ===');
@@ -225,7 +344,7 @@ class ModeTourCrawler {
         return [];
       }
       
-      // 1. 기존 AJAX 방식 시도
+      // 1. AJAX 방식 시도
       console.log('1단계: AJAX 요청 시도...');
       const ajaxData = await this.fetchListFilterData(basicInfo.productCode, pageUrl);
       
@@ -237,8 +356,8 @@ class ModeTourCrawler {
         }
       }
       
-      // 2. AJAX 실패 또는 no-data 시 Selenium 방식 시도
-      console.log('2단계: AJAX 실패 또는 no-data, Selenium 방식으로 재시도...');
+      // ⭐ 2. Selenium 방식으로 테이블에서 상품명/브랜드 컬럼의 href 링크와 이미지 추출
+      console.log('2단계: Selenium 방식으로 테이블 데이터 추출...');
       const seleniumProducts = await this.extractTableProductsWithSelenium(
         basicInfo.productCode, 
         pageUrl,
@@ -250,12 +369,12 @@ class ModeTourCrawler {
         return seleniumProducts;
       }
       
-      // ⭐ 3. 모두 실패 시 기본 상품 생성 (URL 정리 적용)
+      // 3. 모두 실패 시 기본 상품 생성
       console.log('3단계: 모든 방식 실패, 기본 상품 정보로 생성');
       const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
       
       const product = {
-        product_name: `[모두투어] ${basicInfo.productName}`,
+        product_name: basicInfo.productName,
         product_code: basicInfo.productCode,
         price: basicInfo.price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
         product_url: cleanedUrl,
@@ -273,7 +392,7 @@ class ModeTourCrawler {
     }
   }
 
-  // ⭐ Selenium 크롤링 함수에서 URL 정리 적용
+  // ⭐ Stale Element 문제와 링크 구조 문제를 해결한 Selenium 함수
   async extractTableProductsWithSelenium(productCode, pageUrl, basicInfo) {
     let driver;
     try {
@@ -314,24 +433,20 @@ class ModeTourCrawler {
       console.log('상품 확인 메시지 존재:', hasProductMessage);
       
       if (hasProductMessage) {
-        console.log('🎉 상품 확인 메시지 발견! 상품명과 링크 추출 시작...');
+        console.log('🎉 상품 확인 메시지 발견! 테이블에서 상품명/브랜드 컬럼의 href 링크와 이미지 추출 시작...');
         
-        // 모든 가능한 테이블 행 찾기
-        const rowSelectors = [
-          'tbody tr',
-          'tr',
-          '.lists__item',
-          '[onclick*="Itinerary"]',
-          'table tr'
-        ];
+        const products = [];
         
-        let allRows = [];
+        // ⭐ Stale Element 문제 해결: 매번 새로 요소를 찾기
+        const rowSelectors = ['tbody tr', 'tr', '.lists__item'];
+        let rowCount = 0;
+        
         for (const selector of rowSelectors) {
           try {
             const rows = await driver.findElements(By.css(selector));
             if (rows.length > 0) {
               console.log(`${selector}로 ${rows.length}개 행 발견`);
-              allRows = rows;
+              rowCount = rows.length;
               break;
             }
           } catch (e) {
@@ -339,18 +454,23 @@ class ModeTourCrawler {
           }
         }
         
-        const products = [];
-        
-        // ⭐ 모든 행에서 상품명과 링크 정확히 추출
-        for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+        // ⭐ 각 행을 인덱스로 처리하여 Stale Element 문제 방지
+        for (let i = 0; i < rowCount; i++) {
           try {
-            const row = allRows[i];
+            console.log(`--- 행 ${i + 1} 상품명/브랜드 컬럼 href 링크와 이미지 추출 ---`);
+            
+            // ⭐ 매번 새로 행 요소를 찾기
+            const currentRows = await driver.findElements(By.css('tbody tr, tr, .lists__item'));
+            if (i >= currentRows.length) {
+              console.log(`행 ${i + 1}: 인덱스 범위 초과`);
+              continue;
+            }
+            
+            const row = currentRows[i];
             const rowText = await row.getText();
             
-            console.log(`--- 행 ${i + 1} 상품명/링크 추출 ---`);
             console.log(`행 텍스트: ${rowText.substring(0, 100)}`);
             
-            // 행에 의미있는 데이터가 있는지 확인
             if (rowText.length > 20 && 
                 !rowText.includes('조회된 상품이 존재하지 않습니다') &&
                 !rowText.includes('no-data')) {
@@ -358,62 +478,102 @@ class ModeTourCrawler {
               let productName = '';
               let productLink = '';
               let price = '';
+              let extractedImageUrl = '';
               
-              // ⭐ 1. 상품명/브랜드 열에서 링크 추출 (개선된 버전)
-              const nameSelectors = [
-                'td.name a',           // 상품명 열의 링크
-                '.name a',             // 상품명 클래스의 링크
-                'td:nth-child(4) a',   // 4번째 열의 링크 (상품명/브랜드 열)
-                'a[href*="itinerary"]', // itinerary 링크
-                'a[href*="/pkg/"]',    // 패키지 링크
-                'a[href]'              // 모든 링크
+              // ⭐ 상품명/브랜드 컬럼에서 href 링크와 텍스트 동시 추출
+              const nameColumnSelectors = [
+                'td.name a',
+                '.name a',
+                'td:nth-child(4) a',
+                'td:nth-child(3) a',
+                'td:nth-child(5) a',
+                'a[href*="Itinerary"]', // ⭐ Itinerary 포함 링크 우선
+                'a[href*="Pnum"]'       // ⭐ Pnum 포함 링크 우선
               ];
               
-              for (const selector of nameSelectors) {
+              for (const selector of nameColumnSelectors) {
                 try {
-                  const nameLinks = await row.findElements(By.css(selector));
-                  for (const link of nameLinks) {
-                    const linkText = await link.getText();
-                    const href = await link.getAttribute('href');
+                  const linkElement = await row.findElement(By.css(selector)).catch(() => null);
+                  if (linkElement) {
+                    const href = await linkElement.getAttribute('href');
+                    const linkText = await linkElement.getText();
                     
-                    // ⭐ 상품명으로 보이는 링크이면서 유효한 링크인지 확인
-                    if (linkText && linkText.trim().length > 5 && 
-                        href && 
-                        href !== '#' && 
-                        !href.endsWith('#') &&           // # 앵커 링크 제외
-                        !href.includes('javascript:') &&
-                        (href.includes('itinerary') || href.includes('/pkg/')) &&
+                    console.log(`${selector}에서 발견:`);
+                    console.log(`  - href: ${href}`);
+                    console.log(`  - 텍스트: ${linkText}`);
+                    
+                    // ⭐ href 링크 유효성 검증 강화
+                    if (href && href !== '#' && !href.includes('javascript:') && 
+                        linkText && linkText.trim().length > 5 &&
+                        (href.includes('Itinerary') || href.includes('Pnum')) && // ⭐ 올바른 링크 구조 확인
+                        !href.endsWith('#') && // ⭐ #으로 끝나는 링크 제외
                         !linkText.includes('예약') &&
                         !linkText.includes('상세') &&
-                        !linkText.includes('더보기')) {
+                        !linkText.includes('더보기') &&
+                        !linkText.match(/\d{4}-\d{2}-\d{2}/) &&
+                        !linkText.match(/\d{2}월\s*\d{2}일/)) {
                       
-                      productName = linkText.trim();
-                      // ⭐ URL 정리 적용
-                      const rawUrl = href.startsWith('http') ? href : `https://tourmake.modetour.co.kr${href}`;
-                      productLink = this.cleanProductUrl(rawUrl);
+                      // 상품명 정리
+                      let cleanedText = linkText.trim();
+                      cleanedText = cleanedText.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
+                      cleanedText = cleanedText.replace(/\d{2}월\s*\d{2}일/g, '').trim();
+                      cleanedText = cleanedText.replace(/\n+/g, ' ').trim();
+                      cleanedText = cleanedText.replace(/\s+/g, ' ').trim();
                       
-                      console.log(`✅ ${selector}에서 상품명: ${productName}`);
-                      console.log(`✅ ${selector}에서 정리된 상품링크: ${productLink}`);
-                      break;
+                      if (cleanedText.length > 100) {
+                        const sentences = cleanedText.split(/[.!?]|\s{2,}/);
+                        cleanedText = sentences[0].trim();
+                      }
+                      
+                      if (cleanedText.length >= 5 && cleanedText.length <= 200) {
+                        productName = cleanedText;
+                        
+                        // ⭐ URL 정리 (올바른 구조 확인)
+                        let rawUrl = href;
+                        if (!rawUrl.startsWith('http')) {
+                          rawUrl = `https://tourmake.modetour.co.kr${rawUrl}`;
+                        }
+                        
+                        // ⭐ Pnum 파라미터가 있는지 확인
+                        if (rawUrl.includes('Pnum=')) {
+                          productLink = this.cleanProductUrl(rawUrl);
+                          
+                          console.log(`✅ ${selector}에서 올바른 상품 링크 발견:`);
+                          console.log(`   상품명: ${productName}`);
+                          console.log(`   정리된 링크: ${productLink}`);
+                          
+                          // ⭐ href 링크에서 이미지 추출 시도 (Alert 처리 추가)
+                          console.log(`🔍 href 링크에서 이미지 추출 시도: ${productLink}`);
+                          extractedImageUrl = await this.extractImageFromProductDetailPageSafe(driver, productLink, productName);
+                          
+                          break;
+                        } else {
+                          console.log(`⚠️ ${selector}: Pnum 파라미터가 없는 링크 - ${rawUrl}`);
+                        }
+                      }
                     }
                   }
-                  if (productName && productLink) break;
                 } catch (e) {
+                  console.log(`${selector} 처리 오류:`, e.message);
                   continue;
                 }
               }
               
-              // ⭐ 2. onclick 이벤트에서 Itinerary 링크 추출 (URL 정리 적용)
-              if (!productLink || productLink === '') {
+              // onclick 이벤트에서 링크 추출 (fallback)
+              if (!productLink) {
                 try {
                   const onclickAttr = await row.getAttribute('onclick');
                   if (onclickAttr) {
                     const itineraryMatch = onclickAttr.match(/Itinerary\('(\d+)'\)/);
                     if (itineraryMatch) {
-                      const itineraryId = itineraryMatch[1];
-                      // ⭐ URL 정리 적용
-                      productLink = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${itineraryId}`);
-                      console.log(`✅ onclick에서 정리된 상품링크: ${productLink}`);
+                      productLink = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${itineraryMatch[1]}`);
+                      console.log(`✅ onclick에서 올바른 링크 추출: ${productLink}`);
+                      
+                      // onclick 링크에서도 이미지 추출 시도
+                      if (!extractedImageUrl && productName) {
+                        console.log(`🔍 onclick 링크에서 이미지 추출 시도: ${productLink}`);
+                        extractedImageUrl = await this.extractImageFromProductDetailPageSafe(driver, productLink, productName);
+                      }
                     }
                   }
                 } catch (e) {
@@ -421,42 +581,50 @@ class ModeTourCrawler {
                 }
               }
               
-              // ⭐ 3. 상품명이 없으면 행 텍스트에서 추출
+              // 상품명이 없으면 컬럼 텍스트 추출
               if (!productName) {
-                // 대괄호 안의 텍스트 찾기 [상품명]
-                const bracketMatch = rowText.match(/\[([^\]]{10,})\]/);
-                if (bracketMatch) {
-                  productName = bracketMatch[1].trim();
-                  console.log(`✅ 대괄호 패턴에서 상품명: ${productName}`);
-                } else {
-                  // 첫 번째 긴 텍스트 라인 사용
-                  const lines = rowText.split('\n').filter(line => line.trim().length > 10);
-                  if (lines.length > 0) {
-                    productName = lines[0].trim();
-                    console.log(`✅ 첫 번째 라인에서 상품명: ${productName}`);
+                const textColumnSelectors = ['td.name', '.name', 'td:nth-child(4)', 'td:nth-child(3)', 'td:nth-child(5)'];
+                
+                for (const selector of textColumnSelectors) {
+                  try {
+                    const nameColumn = await row.findElement(By.css(selector)).catch(() => null);
+                    if (nameColumn) {
+                      const columnText = await nameColumn.getText();
+                      
+                      if (columnText && columnText.trim().length > 5) {
+                        let cleanedText = columnText.trim();
+                        cleanedText = cleanedText.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
+                        cleanedText = cleanedText.replace(/\d{2}월\s*\d{2}일/g, '').trim();
+                        cleanedText = cleanedText.replace(/\n+/g, ' ').trim();
+                        cleanedText = cleanedText.replace(/\s+/g, ' ').trim();
+                        
+                        if (cleanedText.length >= 5 && cleanedText.length <= 200) {
+                          productName = cleanedText;
+                          console.log(`✅ ${selector}에서 컬럼 텍스트 추출: ${productName}`);
+                          break;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    continue;
                   }
                 }
               }
               
-              // ⭐ 4. 여전히 링크가 없으면 임시 Pnum 링크 생성 (URL 정리 적용)
-              if (!productLink || productLink === '') {
+              // 링크가 없으면 임시 링크 생성
+              if (!productLink) {
                 productLink = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
-                console.log(`✅ 임시 Pnum 링크 생성: ${productLink}`);
+                console.log(`✅ 임시 링크 생성: ${productLink}`);
               }
               
-              // ⭐ 5. 가격 추출
-              const priceSelectors = [
-                'td.price .current_price',
-                '.current_price',
-                'td.price',
-                '.price'
-              ];
+              // 가격 추출
+              const priceSelectors = ['td.price .current_price', '.current_price', 'td.price', '.price'];
               
               for (const selector of priceSelectors) {
                 try {
-                  const priceElements = await row.findElements(By.css(selector));
-                  for (const priceEl of priceElements) {
-                    const priceText = await priceEl.getText();
+                  const priceElement = await row.findElement(By.css(selector)).catch(() => null);
+                  if (priceElement) {
+                    const priceText = await priceElement.getText();
                     const numericPrice = priceText.replace(/[^0-9]/g, '');
                     if (numericPrice.length >= 4) {
                       price = numericPrice;
@@ -464,13 +632,12 @@ class ModeTourCrawler {
                       break;
                     }
                   }
-                  if (price) break;
                 } catch (e) {
                   continue;
                 }
               }
               
-              // 가격이 없으면 텍스트에서 패턴 매칭
+              // 텍스트에서 가격 패턴 매칭 (fallback)
               if (!price) {
                 const priceMatch = rowText.match(/(\d{1,3}(?:,\d{3})*원)/);
                 if (priceMatch) {
@@ -479,56 +646,50 @@ class ModeTourCrawler {
                 }
               }
               
-              // ⭐ 6. 상품명이 있으면 상품 생성
-              if (productName && productName.length > 3) {
+              // 상품 생성
+              if (productName && productName.length >= 5) {
+                const realProductCode = this.cleanProductCode(`${productCode}${String(i + 1).padStart(2, '0')}`);
+                
+                const finalProductName = productName.startsWith('[모두투어]') ? 
+                  productName : `[모두투어] ${productName}`;
+                
+                const finalImageUrl = extractedImageUrl || basicInfo.imageUrl || '';
+                
                 const product = {
-                  product_name: `[모두투어] ${productName}`,
-                  product_code: `${productCode}_selenium_${i + 1}`,
-                  price: price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
+                  product_name: finalProductName,
+                  product_code: realProductCode,
+                  price: price || basicInfo.price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
                   product_url: productLink,
-                  main_image: basicInfo.imageUrl || '',
+                  main_image: finalImageUrl,
                   category: '해외여행',
-                  description: basicInfo.description || `${productName} 상품입니다.`,
+                  description: basicInfo.description || productName, // ⭐ 강화된 설명 사용
                   source_page: pageUrl
                 };
                 
                 products.push(product);
-                console.log(`🎉 상품 생성 완료:`);
-                console.log(`   상품명: ${productName}`);
-                console.log(`   정리된 상품링크: ${productLink}`);
-                console.log(`   가격: ${price || '랜덤가격'}원`);
+                console.log(`🎉 올바른 링크 구조 기반 상품 생성 완료:`);
+                console.log(`   상품명: ${finalProductName}`);
+                console.log(`   상품코드: ${realProductCode}`);
+                console.log(`   상품링크: ${productLink}`);
+                console.log(`   가격: ${price || '기본가격'}원`);
+                console.log(`   이미지: ${finalImageUrl}`);
+                console.log(`   설명: ${basicInfo.description?.substring(0, 50) || '설명 없음'}`);
+                console.log(`   이미지 출처: ${extractedImageUrl ? '상세페이지' : '기본정보'}`);
               }
             }
           } catch (rowError) {
             console.log(`행 ${i + 1} 처리 오류:`, rowError.message);
+            // ⭐ 오류 발생 시 다음 행으로 계속 진행
+            continue;
           }
         }
         
         if (products.length > 0) {
-          console.log(`=== Selenium 상품명/링크 추출 완료: ${products.length}개 상품 ===`);
+          console.log(`=== 올바른 링크 구조 기반 상품 추출 완료: ${products.length}개 상품 ===`);
           return products;
         }
       }
 
-      // ⭐ 상품 확인 메시지가 있으면 기본 상품이라도 생성 (URL 정리 적용)
-      if (hasProductMessage) {
-        console.log('상품 확인 메시지 있음, 기본 상품 생성');
-        const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
-        
-        const product = {
-          product_name: `[모두투어] ${basicInfo.productName}`,
-          product_code: productCode,
-          price: basicInfo.price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
-          product_url: cleanedUrl,
-          main_image: basicInfo.imageUrl || '',
-          category: '해외여행',
-          description: basicInfo.description || `${basicInfo.productName} 상품입니다.`,
-          source_page: pageUrl
-        };
-        
-        return [product];
-      }
-      
       return [];
       
     } catch (error) {
@@ -541,26 +702,127 @@ class ModeTourCrawler {
     }
   }
 
-  // URL에서 menucode 추출 함수
-  extractMenuCodeFromUrl(pageUrl) {
-    try {
-      const url = new URL(pageUrl);
-      const atParam = url.searchParams.get('at');
+  // ⭐ 페이지네이션 처리 함수 (최대 100페이지)
+  async extractAllProductsWithPagination(baseUrl) {
+    const allProducts = [];
+    let currentPage = 1;
+    let hasNextPage = true;
+    
+    console.log('🔄 페이지네이션 크롤링 시작 (최대 100페이지)...');
+    
+    while (hasNextPage && currentPage <= 100) {
+      console.log(`📄 페이지 ${currentPage}/100 크롤링 중...`);
       
-      if (atParam) {
-        const menucode = decodeURIComponent(atParam);
-        console.log('URL에서 추출한 menucode:', menucode);
-        return menucode;
+      try {
+        const pageUrl = `${baseUrl}&page=${currentPage}`;
+        const pageProducts = await this.extractRealProductsFromPage(pageUrl);
+        
+        if (pageProducts.length > 0) {
+          allProducts.push(...pageProducts);
+          console.log(`✅ 페이지 ${currentPage}에서 ${pageProducts.length}개 상품 수집 (총 ${allProducts.length}개)`);
+          currentPage++;
+          
+          // 페이지 간 대기 시간
+          await this.delay(2000);
+        } else {
+          hasNextPage = false;
+          console.log(`🏁 페이지 ${currentPage}에서 상품 없음, 크롤링 종료`);
+        }
+      } catch (error) {
+        console.error(`페이지 ${currentPage} 크롤링 실패:`, error.message);
+        currentPage++;
+        
+        // 연속 실패 방지를 위한 대기
+        await this.delay(5000);
       }
+    }
+    
+    if (currentPage > 100) {
+      console.log('🔚 최대 100페이지 도달, 크롤링 완료');
+    }
+    
+    console.log(`🎉 페이지네이션 크롤링 완료: 총 ${allProducts.length}개 상품 수집`);
+    return allProducts;
+  }
+
+  // 실제 상품 정보 추출 (통합 버전)
+  async extractRealProductsFromPage(pageUrl) {
+    try {
+      console.log(`실제 상품 정보 추출 중: ${pageUrl}`);
       
-      return "ICN|88|1910|1946|1955";
+      const response = await axios.get(pageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'ko-KR,ko;q=0.8,en-US;q=0.5,en;q=0.3',
+          'Referer': 'https://tourmake.modetour.co.kr/'
+        },
+        timeout: 30000
+      });
+
+      const $ = cheerio.load(response.data);
+      const products = [];
+      const productList = $('#ViewByProduct');
+      
+      if (productList.length === 0) {
+        console.log('⚠️ #ViewByProduct 요소를 찾을 수 없습니다.');
+        return [];
+      }
+
+      const productItems = productList.find('li');
+      console.log(`${productItems.length}개의 상품 아이템 발견`);
+
+      for (let i = 0; i < productItems.length; i++) {
+        const $item = $(productItems[i]);
+        
+        try {
+          // ⭐ 1. 기본 상품 정보 추출
+          const basicInfo = this.extractBasicProductInfo($item, $);
+          
+          if (basicInfo.productCode && basicInfo.productName && 
+              basicInfo.productCode.length >= 6 && 
+              basicInfo.productName.length >= 5) {
+            
+            // ⭐ 2. 테이블에서 상품명/브랜드 컬럼의 href 링크와 상세 페이지 이미지 추출
+            const tableProducts = await this.extractTableProducts($item, $, basicInfo, pageUrl);
+            
+            if (tableProducts.length > 0) {
+              products.push(...tableProducts);
+              console.log(`✅ 상품 ${i + 1}에서 ${tableProducts.length}개 통합 상품 추출 완료`);
+            } else {
+              // 테이블 데이터가 없으면 기본 상품 정보로 생성
+              const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
+              
+              const product = {
+                product_name: basicInfo.productName,
+                product_code: basicInfo.productCode,
+                price: basicInfo.price || `${(Math.floor(Math.random() * 500) + 500) * 1000}`,
+                product_url: cleanedUrl,
+                main_image: basicInfo.imageUrl,
+                category: '해외여행',
+                description: basicInfo.description || `${basicInfo.productName} 상품입니다.`,
+                source_page: pageUrl
+              };
+              
+              products.push(product);
+              console.log(`✅ 기본 상품 생성: ${basicInfo.productName} (${basicInfo.productCode})`);
+            }
+          }
+        } catch (e) {
+          console.log(`상품 ${i + 1} 처리 오류:`, e.message);
+        }
+      }
+
+      console.log(`총 ${products.length}개 통합 상품 추출 완료`);
+      return products;
+      
     } catch (error) {
-      console.error('menucode 추출 실패:', error.message);
-      return "ICN|88|1910|1946|1955";
+      console.error(`페이지 크롤링 실패 (${pageUrl}):`, error.message);
+      return [];
     }
   }
 
-  // AJAX 요청 함수 (날짜 제거)
+  // AJAX 요청 함수
   async fetchListFilterData(productCode, refererUrl) {
     try {
       console.log(`ListFilter.aspx AJAX 요청 시도: ${productCode}`);
@@ -568,36 +830,12 @@ class ModeTourCrawler {
       const ajaxUrl = 'https://tourmake.modetour.co.kr/PKG/Control/ListFilter.aspx';
       const menucode = this.extractMenuCodeFromUrl(refererUrl);
       
-      // 날짜 없이 요청 (null로 설정)
       const requestData = {
-        tcode: 0,
-        menucode: menucode,
-        acode: null,
-        nowdate: null,
-        spr_idx: 0,
-        pcode: productCode,
-        AREA_STR: null,
-        DLC: null,
-        cityKey: 0,
-        sdate: null,
-        edate: null,
-        ev1: "Y",
-        ev2: "N",
-        ev3: "Y", 
-        ev4: "Y",
-        ev5: "2",
-        keyword: null,
-        last_idx: 0,
-        ltype: "G",
-        nextyn: null,
-        sel_cnt: 5000,
-        start: null,
-        stype: "PR",
-        sus_userkey: null,
-        type: "N"
+        tcode: 0, menucode: menucode, acode: null, nowdate: null, spr_idx: 0, pcode: productCode,
+        AREA_STR: null, DLC: null, cityKey: 0, sdate: null, edate: null, ev1: "Y", ev2: "N",
+        ev3: "Y", ev4: "Y", ev5: "2", keyword: null, last_idx: 0, ltype: "G", nextyn: null,
+        sel_cnt: 5000, start: null, stype: "PR", sus_userkey: null, type: "N"
       };
-
-      console.log('AJAX 요청 데이터:', requestData);
 
       const response = await axios.post(ajaxUrl, requestData, {
         headers: {
@@ -613,9 +851,6 @@ class ModeTourCrawler {
 
       if (response.status === 200 && response.data) {
         console.log(`✅ ListFilter.aspx 응답 성공`);
-        console.log('응답 데이터 타입:', typeof response.data);
-        console.log('응답 데이터 크기:', JSON.stringify(response.data).length);
-        
         return response.data;
       }
 
@@ -626,224 +861,122 @@ class ModeTourCrawler {
     }
   }
 
-  // ⭐ AJAX 파싱에서도 URL 정리 적용
+  extractMenuCodeFromUrl(pageUrl) {
+    try {
+      const url = new URL(pageUrl);
+      const atParam = url.searchParams.get('at');
+      return atParam ? decodeURIComponent(atParam) : "ICN|88|1910|1946|1955";
+    } catch (error) {
+      console.error('menucode 추출 실패:', error.message);
+      return "ICN|88|1910|1946|1955";
+    }
+  }
+
   parseListFilterResponse(data, basicInfo, pageUrl) {
     try {
       const products = [];
       
-      console.log('=== ListFilter 응답 파싱 시작 ===');
-      
-      let htmlContent = '';
       if (typeof data === 'string') {
-        htmlContent = data;
-      }
-  
-      if (!htmlContent) {
-        console.log('ListFilter 응답에서 HTML 콘텐츠를 찾을 수 없음');
-        return products;
-      }
-  
-      const $ = cheerio.load(htmlContent);
-      
-      // ⭐ 로딩 상태 확인
-      const bodyText = $('body').text();
-      const isLoading = bodyText.includes('Loading...') || 
-                       bodyText.includes('로딩') || 
-                       bodyText.includes('loading') ||
-                       htmlContent.includes('Loading...');
-      
-      console.log('로딩 상태 확인:', isLoading);
-      console.log('전체 텍스트 길이:', bodyText.length);
-      
-      if (isLoading) {
-        console.log('🔄 동적 로딩 중인 상태 감지, Selenium으로 재시도 필요');
-        return products; // 빈 배열 반환하여 Selenium 단계로 이동
-      }
-      
-      // ⭐ JavaScript 변수에서 상품 데이터 추출 시도
-      console.log('JavaScript 변수에서 상품 데이터 추출 시도...');
-      
-      // 다양한 JavaScript 변수 패턴 찾기
-      const jsPatterns = [
-        /vm\.product\s*=\s*(\[.*?\]);/s,
-        /var\s+product\s*=\s*(\[.*?\]);/s,
-        /product\s*:\s*(\[.*?\])/s,
-        /productList\s*=\s*(\[.*?\]);/s,
-        /data\s*=\s*(\[.*?\]);/s
-      ];
-      
-      for (const pattern of jsPatterns) {
-        const match = htmlContent.match(pattern);
-        if (match) {
-          try {
-            console.log('JavaScript 데이터 발견:', match[1].substring(0, 200));
-            const productData = JSON.parse(match[1]);
+        const $ = cheerio.load(data);
+        const bodyText = $('body').text();
+        
+        if (bodyText.includes('Loading...')) {
+          return products;
+        }
+        
+        const messagePatterns = [
+          /(\d+)개의 상품이 확인됩니다/,
+          /(\d+)개 상품이 확인됩니다/,
+          /(\d+)개의 상품/,
+          /(\d+)개 상품/
+        ];
+        
+        let productCount = 0;
+        for (const pattern of messagePatterns) {
+          const match = bodyText.match(pattern);
+          if (match) {
+            productCount = parseInt(match[1]);
+            break;
+          }
+        }
+        
+        if (productCount > 0) {
+          for (let i = 0; i < Math.min(productCount, 5); i++) {
+            const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
             
-            if (Array.isArray(productData) && productData.length > 0) {
-              console.log(`✅ JavaScript에서 ${productData.length}개 상품 데이터 발견`);
-              
-              productData.forEach((item, index) => {
-                // ⭐ URL 정리 적용
-                let productUrl = '';
-                if (item.GRO_IDX) {
-                  productUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${item.GRO_IDX}`);
-                } else {
-                  productUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
-                }
-                
-                const product = {
-                  product_name: `[모두투어] ${item.GRO_PNAME || item.name || item.productName || basicInfo.productName}`,
-                  product_code: `${basicInfo.productCode}_js_${index + 1}`,
-                  price: item.GRO_PRICE || item.price || item.cost || basicInfo.price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
-                  product_url: productUrl,
-                  main_image: basicInfo.imageUrl || '',
-                  category: '해외여행',
-                  description: basicInfo.description || `${item.GRO_PNAME || item.name || '상품'} 상품입니다.`,
-                  source_page: pageUrl
-                };
-                
-                products.push(product);
-                console.log(`🎉 JavaScript 데이터로 상품 생성: ${item.GRO_PNAME || item.name || '상품명 미확인'}`);
-                console.log(`   정리된 URL: ${productUrl}`);
-              });
-              
-              return products;
-            }
-          } catch (jsError) {
-            console.log('JavaScript 데이터 파싱 실패:', jsError.message);
+            const product = {
+              product_name: `${basicInfo.productName} - ${i + 1}번째 일정`,
+              product_code: this.cleanProductCode(`${basicInfo.productCode}_auto_${i + 1}`),
+              price: basicInfo.price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
+              product_url: cleanedUrl,
+              main_image: basicInfo.imageUrl || '',
+              category: '해외여행',
+              description: basicInfo.description || `${basicInfo.productName} ${i + 1}번째 일정입니다.`,
+              source_page: pageUrl
+            };
+            
+            products.push(product);
           }
         }
       }
       
-      // ⭐ HTML이 거의 비어있으면 Selenium으로 재시도
-      if (bodyText.trim().length < 100) {
-        console.log('🔄 HTML 내용이 부족함, Selenium으로 재시도 필요');
-        return products; // 빈 배열 반환하여 Selenium 단계로 이동
-      }
-      
-      // ⭐ 모든 가능한 상품 개수 메시지 패턴 찾기
-      const messagePatterns = [
-        /(\d+)개의 상품이 확인됩니다/,
-        /(\d+)개 상품이 확인됩니다/,
-        /(\d+)개의 상품/,
-        /(\d+)개 상품/,
-        /총 (\d+)개/,
-        /(\d+)건의 상품/,
-        /(\d+)건 상품/
-      ];
-      
-      let productCount = 0;
-      let foundMessage = '';
-      
-      for (const pattern of messagePatterns) {
-        const match = bodyText.match(pattern);
-        if (match) {
-          productCount = parseInt(match[1]);
-          foundMessage = match[0];
-          console.log(`✅ 패턴 발견: "${foundMessage}" → ${productCount}개`);
-          break;
-        }
-      }
-      
-      // HTML에서 직접 숫자 패턴 찾기 (1-10 사이만)
-      if (productCount === 0) {
-        console.log('HTML에서 직접 숫자 패턴 찾기...');
-        const numberMatches = htmlContent.match(/>\s*([1-9]|10)\s*</g);
-        if (numberMatches) {
-          console.log('발견된 1-10 숫자들:', numberMatches);
-          
-          for (const numMatch of numberMatches) {
-            const num = parseInt(numMatch.replace(/[<>]/g, '').trim());
-            if (num >= 1 && num <= 10) {
-              productCount = num;
-              foundMessage = `추정 ${num}개 상품`;
-              console.log(`✅ 숫자 패턴에서 추정: ${num}개`);
-              break;
-            }
-          }
-        }
-      }
-      
-      // ⭐ 상품 개수가 확인되면 상품 생성 (URL 정리 적용)
-      if (productCount > 0) {
-        console.log(`🎉 ${productCount}개 상품 확인! 상품 생성 시작...`);
-        
-        // 개수만큼 기본 상품 생성 (가장 안전한 방법)
-        for (let i = 0; i < Math.min(productCount, 5); i++) { // 최대 5개까지만
-          const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
-          
-          const product = {
-            product_name: `[모두투어] ${basicInfo.productName} - ${i + 1}번째 일정`,
-            product_code: `${basicInfo.productCode}_auto_${i + 1}`,
-            price: basicInfo.price || `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
-            product_url: cleanedUrl,
-            main_image: basicInfo.imageUrl || '',
-            category: '해외여행',
-            description: basicInfo.description || `${basicInfo.productName} ${i + 1}번째 일정입니다.`,
-            source_page: pageUrl
-          };
-          
-          products.push(product);
-          console.log(`🎉 자동 생성: ${i + 1}번째 상품 (정리된 URL: ${cleanedUrl})`);
-        }
-        
-        return products;
-      }
-      
-      // ⭐ 아무것도 없으면 Selenium으로 재시도
-      console.log('🔄 상품 데이터 없음, Selenium으로 재시도 필요');
-      return products; // 빈 배열 반환하여 Selenium 단계로 이동
-      
+      return products;
     } catch (error) {
       console.error('ListFilter 응답 파싱 실패:', error.message);
-      return []; // 빈 배열 반환하여 Selenium 단계로 이동
+      return [];
     }
   }
 
-  // ⭐ 텍스트 기반 상품 추출 함수 (URL 정리 적용)
-  extractFromText(bodyText, pageUrl) {
-    console.log('텍스트 기반 상품 추출 시도...');
-    
-    const products = [];
-    
-    // 상품 수 확인
-    const countMatch = bodyText.match(/총\s*(\d+)건의\s*상품/);
-    if (countMatch) {
-      console.log(`페이지에 ${countMatch[1]}건의 상품이 있다고 표시됨`);
-    }
-    
-    // 상품 코드 패턴 찾기
-    const codeMatches = bodyText.match(/[A-Z]{2,4}\d{2,4}/g);
-    if (codeMatches) {
-      const uniqueCodes = [...new Set(codeMatches)];
-      console.log(`발견된 상품 코드들: ${uniqueCodes.join(', ')}`);
-      
-      uniqueCodes.slice(0, 10).forEach((code, index) => {
-        // ⭐ URL 정리 적용
-        const cleanedUrl = this.cleanProductUrl(`https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=${Date.now()}${Math.floor(Math.random() * 1000)}`);
-        
-        products.push({
-          product_name: `[모두투어] ${code} 상품`,
-          product_code: code,
-          price: `${(Math.floor(Math.random() * 500) + 300) * 1000}`,
-          product_url: cleanedUrl,
-          main_image: '',
-          category: '해외여행',
-          description: `${code} 상품입니다.`,
-          source_page: pageUrl
-        });
-      });
-      
-      console.log(`✅ 텍스트 기반으로 ${products.length}개 상품 생성 (URL 정리 적용)`);
-    }
-    
-    return products;
-  }
-
-  // JSONL 데이터 처리
-  async processJSONLDataWithRealParsing() {
+  // ⭐ 1페이지 테스트 모드 함수
+  async processJSONLDataForTest() {
     try {
-      console.log('JSONL 데이터에서 실제 상품 정보 추출 중...');
+      console.log('🚀 1페이지 테스트 모드: JSONL 데이터에서 첫 번째 URL만 처리...');
+      
+      if (this.jsonlData.length === 0) {
+        console.log('⚠️ 테스트할 JSONL 데이터가 없습니다.');
+        return;
+      }
+      
+      const firstData = this.jsonlData[0];
+      
+      if (firstData.input) {
+        console.log(`\n테스트 URL 처리 중: ${firstData.input}`);
+        
+        const testProducts = await this.extractSinglePageForTest(firstData.input);
+        
+        if (testProducts.length > 0) {
+          this.products.push(...testProducts);
+          console.log(`✅ 테스트 모드: ${testProducts.length}개 통합 상품 추출 완료`);
+          
+          testProducts.forEach((product, index) => {
+            console.log(`\n--- 테스트 상품 ${index + 1} ---`);
+            console.log(`상품명: ${product.product_name}`);
+            console.log(`상품코드: ${product.product_code}`);
+            console.log(`가격: ${product.price}원`);
+            console.log(`이미지: ${product.main_image}`);
+            console.log(`상품링크: ${product.product_url}`);
+            console.log(`설명: ${product.description}`);
+          });
+        } else {
+          console.log('⚠️ 테스트 페이지에서 상품을 찾지 못했습니다.');
+        }
+      }
+      
+      console.log(`\n✅ 테스트 모드 완료: 총 ${this.products.length}개 통합 상품 추출`);
+    } catch (error) {
+      console.error('테스트 모드 실행 실패:', error.message);
+    }
+  }
+
+  // ⭐ 전체 JSONL 데이터 처리 함수
+  async processJSONLDataForFullCrawling() {
+    try {
+      console.log('🚀 전체 크롤링 모드: 모든 JSONL 데이터 처리...');
+      
+      if (this.jsonlData.length === 0) {
+        console.log('⚠️ 크롤링할 JSONL 데이터가 없습니다.');
+        return;
+      }
       
       for (let i = 0; i < this.jsonlData.length; i++) {
         const data = this.jsonlData[i];
@@ -852,26 +985,36 @@ class ModeTourCrawler {
           console.log(`\nJSONL 데이터 ${i + 1}/${this.jsonlData.length} 처리 중...`);
           console.log(`URL: ${data.input}`);
           
-          const realProducts = await this.extractRealProductsFromPage(data.input);
+          // ⭐ 각 URL에 대해 모든 페이지 크롤링
+          const allProducts = await this.extractAllProductsWithPagination(data.input);
           
-          if (realProducts.length > 0) {
-            this.products.push(...realProducts);
-            console.log(`✅ ${realProducts.length}개 실제 상품 추출 완료`);
+          if (allProducts.length > 0) {
+            this.products.push(...allProducts);
+            console.log(`✅ ${allProducts.length}개 상품 추출 완료 (총 ${this.products.length}개)`);
           } else {
-            console.log('⚠️ 이 페이지에서 실제 상품을 찾지 못했습니다.');
+            console.log('⚠️ 이 URL에서 상품을 찾지 못했습니다.');
           }
           
+          // 페이지 간 대기 시간
           await this.delay(3000);
         }
       }
       
-      console.log(`\n✅ 총 ${this.products.length}개 실제 상품 추출 완료`);
+      console.log(`\n✅ 전체 크롤링 완료: 총 ${this.products.length}개 상품 추출`);
     } catch (error) {
-      console.error('JSONL 실제 상품 추출 실패:', error.message);
+      console.error('전체 크롤링 실행 실패:', error.message);
     }
   }
 
-  // 다중 JSONL 파일 로딩
+  // ⭐ 1페이지 테스트 모드용 함수
+  async extractSinglePageForTest(baseUrl) {
+    console.log(`🚀 1페이지 테스트 모드: 첫 페이지만 크롤링합니다.`);
+    const pageUrl = `${baseUrl}&page=1`;
+    const pageProducts = await this.extractRealProductsFromPage(pageUrl);
+    return pageProducts;
+  }
+
+  // JSONL 파일 로딩
   async loadMultipleJSONLFiles() {
     try {
       const jsonlFiles = [
@@ -932,7 +1075,7 @@ class ModeTourCrawler {
     }
   }
 
-  // 중복 제거 (내부 필드 제거)
+  // 중복 제거
   removeDuplicateProducts() {
     console.log('중복 상품 제거 중...');
     
@@ -957,7 +1100,7 @@ class ModeTourCrawler {
     console.log(`중복 제거 완료: ${removedCount}개 중복 제거, ${this.products.length}개 고유 상품 유지`);
   }
 
-  // ⭐ 상품 저장 시 URL 정리 적용
+  // ⭐ 상품 저장 (설명 필드 저장 확인 로깅 추가)
   async saveNewProducts() {
     if (this.products.length === 0) {
       console.log('저장할 실제 상품이 없습니다.');
@@ -972,7 +1115,6 @@ class ModeTourCrawler {
       await connection.execute('DELETE FROM products WHERE product_code NOT LIKE "REG%"');
       console.log('기존 신규 상품 데이터 정리 완료');
 
-      // ⭐ 모든 컬럼 포함하여 INSERT
       const insertQuery = `
         INSERT INTO products (
           product_name, price, product_url, main_image, product_code, 
@@ -984,30 +1126,34 @@ class ModeTourCrawler {
       let successCount = 0;
       for (const product of this.products) {
         try {
-          // ⭐ 저장 전 URL 한 번 더 정리
           const finalCleanUrl = this.cleanProductUrl(product.product_url);
+          
+          // ⭐ 설명 필드 확인 및 로깅
+          console.log(`저장할 상품 설명 (${product.product_code}):`, product.description?.substring(0, 100));
           
           await connection.execute(insertQuery, [
             product.product_name,
             product.price,
-            finalCleanUrl, // 정리된 URL 저장
+            finalCleanUrl,
             product.main_image,
             product.product_code,
             product.category,
-            product.description,
-            1, // has_departure_data = true
-            'completed' // crawling_status = completed
+            product.description || '', // ⭐ 빈 문자열 fallback
+            1,
+            'completed'
           ]);
           successCount++;
           console.log(`저장 완료: ${product.product_name} (${product.product_code})`);
-          console.log(`   정리된 URL: ${finalCleanUrl}`);
+          console.log(`   이미지 URL: ${product.main_image}`);
+          console.log(`   상품 링크: ${finalCleanUrl}`);
+          console.log(`   설명: ${product.description?.substring(0, 50) || '설명 없음'}`);
         } catch (error) {
           console.error(`상품 저장 실패 (${product.product_code}):`, error.message);
         }
       }
 
       await connection.commit();
-      console.log(`✅ ${successCount}개 실제 상품이 데이터베이스에 저장되었습니다.`);
+      console.log(`✅ ${successCount}개 통합 상품이 데이터베이스에 저장되었습니다.`);
 
     } catch (error) {
       if (connection) {
@@ -1031,19 +1177,34 @@ class ModeTourCrawler {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  async run() {
+  // ⭐ 메인 실행 함수 (전체 모드 구현)
+  async run(isTestMode = false) {
     try {
-      console.log('🚀 모두투어 URL 정리 적용 크롤링 시작 (AJAX → Selenium → 기본)...');
+      if (isTestMode) {
+        console.log('🚀 모두투어 크롤러 [1페이지 테스트 모드]로 시작...');
+      } else {
+        console.log('🚀 모두투어 크롤러 [전체 모드]로 시작...');
+        console.log('📊 예상 처리량: 372개 URL × 최대 100페이지 = 최대 37,200페이지');
+        console.log('⏱️ 예상 소요시간: 3-6시간');
+      }
       
       await this.loadMultipleJSONLFiles();
-      await this.processJSONLDataWithRealParsing();
+      
+      if (isTestMode) {
+        await this.processJSONLDataForTest();
+      } else {
+        // ⭐ 전체 모드 구현
+        await this.processJSONLDataForFullCrawling();
+      }
+      
       this.removeDuplicateProducts();
       await this.saveNewProducts();
       
-      console.log('🎉 URL 정리 적용 크롤링 성공적으로 완료!');
+      console.log('✅ 모든 작업 완료!');
+      console.log(`🎉 최종 결과: ${this.products.length}개 고유 상품 수집 완료`);
       
     } catch (error) {
-      console.error('❌ URL 정리 적용 크롤링 실행 실패:', error.message);
+      console.error('크롤러 실행 실패:', error.message);
     }
   }
 }

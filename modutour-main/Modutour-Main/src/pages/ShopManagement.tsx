@@ -23,6 +23,19 @@ interface Product {
   registered_at?: string;
 }
 
+interface ApiResponse {
+  success: boolean;
+  data?: Product[] | { products?: Product[] };
+  message?: string;
+  error?: string;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 const ShopManagement: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'new' | 'registered'>('new');
@@ -33,27 +46,37 @@ const ShopManagement: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [lastCrawlTime, setLastCrawlTime] = useState<string>('');
   const [isEditMode, setIsEditMode] = useState(false);
+  const [error, setError] = useState<string>('');
 
-  // 편집 가능한 필드만 관리하는 상태 (신규 등록 탭용)
   const [editableFields, setEditableFields] = useState({
     product_name: '',
     category: '',
     description: ''
   });
 
-  // 등록된 상품 탭에서 수정 시 사용할 상태
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const API_BASE_URL = 'http://localhost:5001/api';
   const isInitialMount = useRef(true);
-  const crawlingInterval = useRef<any>(null);
+  const crawlingInterval = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   
-  // 페이지당 표시할 아이템 수
   const ITEMS_PER_PAGE = 14;
 
-  // ⭐ CORS 대응 fetch 함수 개선
-  const fetchWithCors = async (url: string, options: RequestInit = {}) => {
+  // ⭐ AbortController를 사용한 안전한 fetch 함수
+  const fetchWithErrorHandling = async (url: string, options: RequestInit = {}): Promise<ApiResponse> => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
+      setError('');
+      
+      console.log(`API 요청 시작: ${url}`);
+      
       const response = await fetch(url, {
         ...options,
         headers: {
@@ -61,39 +84,84 @@ const ShopManagement: React.FC = () => {
           ...options.headers,
         },
         credentials: 'include',
-        mode: 'cors'
+        mode: 'cors',
+        signal: controller.signal
       });
 
+      console.log(`API 응답 상태: ${response.status}`);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      return response;
+      const result: ApiResponse = await response.json();
+      console.log(`API 응답 데이터:`, result);
+      
+      if (!result.success) {
+        throw new Error(result.message || result.error || '알 수 없는 오류가 발생했습니다.');
+      }
+
+      return result;
     } catch (error) {
-      console.error('API 요청 실패:', error);
-      throw error;
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('요청이 취소되었습니다.');
+        throw error;
+      }
+
+      let errorMessage = '네트워크 오류가 발생했습니다.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch')) {
+          errorMessage = '서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.';
+        } else if (error.message.includes('ERR_CONNECTION_REFUSED')) {
+          errorMessage = '서버 연결이 거부되었습니다. 포트 5001이 열려있는지 확인해주세요.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      console.error('API 요청 실패:', errorMessage);
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
   };
 
-  // 현재 탭의 전체 상품 목록 (숨김 상품 제외)
+  // ⭐ 안전한 배열 추출 함수
+  const extractProductsArray = (data: any): Product[] => {
+    try {
+      if (Array.isArray(data)) {
+        return data;
+      }
+      
+      if (data && Array.isArray(data.products)) {
+        return data.products;
+      }
+      
+      if (data && Array.isArray(data.data)) {
+        return data.data;
+      }
+      
+      console.warn('예상하지 못한 API 응답 구조:', data);
+      return [];
+    } catch (error) {
+      console.error('상품 배열 추출 실패:', error);
+      return [];
+    }
+  };
+
   const allProducts = activeTab === 'new' 
     ? newProducts 
     : registeredProducts.filter(product => !product.is_hidden);
   
-  // 현재 페이지에 표시할 상품들 계산
   const getCurrentPageProducts = () => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
     return allProducts.slice(startIndex, endIndex);
   };
 
-  // 현재 페이지의 상품 목록
   const currentProducts = getCurrentPageProducts();
-  
-  // 전체 페이지 수 계산
   const totalPages = Math.ceil(allProducts.length / ITEMS_PER_PAGE);
 
-  // 페이지 변경 핸들러
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     setSelectedRowIndex(null);
@@ -103,86 +171,124 @@ const ShopManagement: React.FC = () => {
     setEditingProduct(null);
   };
 
-  // ⭐ 신규 상품 조회 개선
+  // ⭐ 개선된 신규 상품 조회
   const fetchNewProducts = async () => {
     try {
       console.log('신규 상품 조회 시작...');
       
-      const response = await fetchWithCors(`${API_BASE_URL}/products/new?t=${Date.now()}`);
-      const result = await response.json();
+      const result = await fetchWithErrorHandling(
+        `${API_BASE_URL}/products/new?page=${currentPage}&limit=${ITEMS_PER_PAGE}&t=${Date.now()}`
+      );
       
-      console.log('신규 상품 API 응답:', result);
+      const products = extractProductsArray(result.data);
       
-      if (result.success && result.data) {
-        // ⭐ API 응답 구조 확인 후 배열 설정
-        const products = Array.isArray(result.data) ? result.data : 
-                        (result.data.products && Array.isArray(result.data.products) ? result.data.products : []);
-        
-        setNewProducts(products);
-        console.log(`신규 상품 ${products.length}개 로딩 완료`);
-        
-        const newTotalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
+      setNewProducts(products);
+      console.log(`신규 상품 ${products.length}개 로딩 완료`);
+      
+      if (result.pagination) {
+        const newTotalPages = result.pagination.totalPages;
         if (currentPage > newTotalPages && newTotalPages > 0) {
           setCurrentPage(1);
         }
-        
-        if (products.length > 0 && activeTab !== 'new') {
-          setActiveTab('new');
-        }
-      } else {
-        console.error('신규 상품 조회 실패:', result.message);
-        setNewProducts([]);
+      }
+      
+      if (products.length > 0 && activeTab !== 'new') {
+        setActiveTab('new');
       }
     } catch (error) {
-      console.error('신규 상품 조회 오류:', error);
-      setNewProducts([]);
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('신규 상품 조회 오류:', error);
+        setNewProducts([]);
+      }
     }
   };
 
-  // ⭐ 등록된 상품 조회 개선
-  const fetchRegisteredProducts = async () => {
-    try {
-      const response = await fetchWithCors(`${API_BASE_URL}/products/registered`);
-      const result = await response.json();
-      
-      if (result.success && result.data) {
-        // ⭐ API 응답 구조 확인 후 배열 설정
-        const products = Array.isArray(result.data) ? result.data : 
-                        (result.data.products && Array.isArray(result.data.products) ? result.data.products : []);
-        
-        setRegisteredProducts(products);
-        console.log(`등록된 상품 ${products.length}개 조회 완료`);
-        
-        const visibleProducts = products.filter((product: Product) => !product.is_hidden);
-        const newTotalPages = Math.ceil(visibleProducts.length / ITEMS_PER_PAGE);
-        if (currentPage > newTotalPages && newTotalPages > 0) {
-          setCurrentPage(1);
-        }
-      } else {
-        console.error('등록된 상품 조회 실패:', result.message);
-        setRegisteredProducts([]);
+// ⭐ 등록된 상품 조회 함수 수정
+const fetchRegisteredProducts = async () => {
+  try {
+    console.log('등록된 상품 조회 시작...');
+    
+    // ⭐ 파라미터 수정 (limit을 20으로 고정)
+    const result = await fetchWithErrorHandling(
+      `${API_BASE_URL}/products/registered?page=1&limit=20&t=${Date.now()}`
+    );
+    
+    console.log('등록된 상품 API 응답:', result);
+    
+    const products = extractProductsArray(result.data);
+    
+    setRegisteredProducts(products);
+    console.log(`등록된 상품 ${products.length}개 조회 완료`);
+    
+    // 페이지 조정 (등록된 상품은 숨김 필터링 불필요)
+    if (result.pagination) {
+      const newTotalPages = result.pagination.totalPages;
+      if (currentPage > newTotalPages && newTotalPages > 0) {
+        setCurrentPage(1);
       }
-    } catch (error) {
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name !== 'AbortError') {
       console.error('등록된 상품 조회 오류:', error);
       setRegisteredProducts([]);
     }
-  };
+  }
+};
 
-  // 크롤링 상태 확인
+
+  // ⭐ 크롤링 상태 확인
   const fetchCrawlStatus = async () => {
     try {
-      const response = await fetchWithCors(`${API_BASE_URL}/crawl/status`);
-      const result = await response.json();
+      const result = await fetchWithErrorHandling(`${API_BASE_URL}/crawl/status`);
       
-      if (result.success && result.lastUpdate) {
-        setLastCrawlTime(result.lastUpdate);
+      if (result.data && typeof result.data === 'object') {
+        const statusData = result.data as any;
+        if (statusData.timestamp || statusData.lastUpdate) {
+          setLastCrawlTime(statusData.timestamp || statusData.lastUpdate);
+        }
       }
     } catch (error) {
-      console.error('크롤링 상태 확인 오류:', error);
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('크롤링 상태 확인 오류:', error);
+      }
     }
   };
 
-  // 신규 상품 크롤링 시작
+  // ⭐ StrictMode를 고려한 useEffect
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      console.log('컴포넌트 초기 마운트 - 데이터 로딩 시작');
+      
+      const initializeData = async () => {
+        try {
+          await Promise.allSettled([
+            fetchNewProducts(),
+            fetchRegisteredProducts(),
+            fetchCrawlStatus()
+          ]);
+        } catch (error) {
+          console.error('초기 데이터 로딩 실패:', error);
+        }
+      };
+      
+      initializeData();
+    }
+
+    return () => {
+      if (crawlingInterval.current) {
+        clearInterval(crawlingInterval.current);
+        crawlingInterval.current = null;
+      }
+      
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
+
+  // ⭐ 크롤링 시작 함수
   const handleCrawlNewProducts = async () => {
     if (isLoading) {
       console.log('이미 크롤링 중입니다.');
@@ -190,15 +296,14 @@ const ShopManagement: React.FC = () => {
     }
     
     setIsLoading(true);
+    setError('');
     
     try {
       console.log('수동 크롤링 시작 요청...');
       
-      const response = await fetchWithCors(`${API_BASE_URL}/crawl/start`, {
+      const result = await fetchWithErrorHandling(`${API_BASE_URL}/crawl/start`, {
         method: 'POST',
       });
-      
-      const result = await response.json();
       
       if (result.success) {
         alert('신규 상품 크롤링이 시작되었습니다.');
@@ -216,22 +321,27 @@ const ShopManagement: React.FC = () => {
           try {
             console.log(`크롤링 완료 확인 중... (${checkCount}/${maxChecks})`);
             
-            const statusResponse = await fetchWithCors(`${API_BASE_URL}/crawl/status`);
-            const statusResult = await statusResponse.json();
+            const statusResult = await fetchWithErrorHandling(`${API_BASE_URL}/crawl/status`);
             
-            if (statusResult.success && statusResult.productCount > 0) {
-              if (crawlingInterval.current) {
-                clearInterval(crawlingInterval.current);
-                crawlingInterval.current = null;
-              }
+            if (statusResult.success && statusResult.data) {
+              const statusData = statusResult.data as any;
               
-              setIsLoading(false);
-              await fetchNewProducts();
-              await fetchCrawlStatus();
-              alert(`${statusResult.productCount}개의 신규 상품이 수집되었습니다.`);
-              setActiveTab('new');
-              setCurrentPage(1);
-              return;
+              if (statusData.productCount > 0 || statusData.recentProducts > 0) {
+                if (crawlingInterval.current) {
+                  clearInterval(crawlingInterval.current);
+                  crawlingInterval.current = null;
+                }
+                
+                setIsLoading(false);
+                await fetchNewProducts();
+                await fetchCrawlStatus();
+                
+                const productCount = statusData.productCount || statusData.recentProducts || 0;
+                alert(`${productCount}개의 신규 상품이 수집되었습니다.`);
+                setActiveTab('new');
+                setCurrentPage(1);
+                return;
+              }
             }
             
             if (checkCount >= maxChecks) {
@@ -248,39 +358,19 @@ const ShopManagement: React.FC = () => {
           } catch (error) {
             console.error('크롤링 상태 확인 오류:', error);
           }
-        }, 5000) as any;
+        }, 5000);
         
       } else {
-        alert('크롤링 시작 실패: ' + result.message);
-        setIsLoading(false);
+        throw new Error(result.message || '크롤링 시작 실패');
       }
     } catch (error) {
       console.error('크롤링 요청 오류:', error);
-      alert('크롤링 요청 중 오류가 발생했습니다.');
+      const errorMessage = error instanceof Error ? error.message : '크롤링 요청 중 오류가 발생했습니다.';
+      alert(errorMessage);
       setIsLoading(false);
     }
   };
 
-  // 컴포넌트 마운트 시에만 실행
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      console.log('컴포넌트 초기 마운트 - 데이터 로딩 시작');
-      
-      fetchNewProducts();
-      fetchRegisteredProducts();
-      fetchCrawlStatus();
-    }
-
-    return () => {
-      if (crawlingInterval.current) {
-        clearInterval(crawlingInterval.current);
-        crawlingInterval.current = null;
-      }
-    };
-  }, []);
-
-  // 탭 변경 시 데이터 새로고침 및 페이지 초기화
   const handleTabChange = (tab: 'new' | 'registered') => {
     setActiveTab(tab);
     setSelectedRowIndex(null);
@@ -289,6 +379,7 @@ const ShopManagement: React.FC = () => {
     setIsEditMode(false);
     setEditingProduct(null);
     setCurrentPage(1);
+    setError('');
     
     if (tab === 'new') {
       fetchNewProducts();
@@ -297,82 +388,87 @@ const ShopManagement: React.FC = () => {
     }
   };
 
-  // 상품 행 클릭 처리
   const handleProductClick = (index: number) => {
-    setSelectedRowIndex(index);
-    const product = currentProducts[index];
-    setSelectedProduct(product);
-    setIsEditMode(false);
-    setEditingProduct(null);
-    
-    // 신규 등록 탭에서는 편집 가능한 필드만 설정
-    if (activeTab === 'new') {
-      setEditableFields({
-        product_name: product.product_name,
-        category: product.category,
-        description: product.description
-      });
-    }
-  };
-
-  // ⭐ 상품 저장 후 등록 개선 (신규 등록 탭)
-  const handleSaveProduct = async () => {
-    if (!selectedProduct) {
-      alert('저장할 상품을 선택해주세요.');
-      return;
-    }
-
-    if (activeTab === 'new' && selectedProduct.id) {
-      try {
-        // 1. 먼저 상품 정보 업데이트
-        const updatedData = {
-          product_name: editableFields.product_name,
-          category: editableFields.category,
-          description: editableFields.description,
-          price: selectedProduct.price
-        };
-
-        const updateResponse = await fetchWithCors(`${API_BASE_URL}/products/new/${selectedProduct.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(updatedData)
-        });
-
-        const updateResult = await updateResponse.json();
-        
-        if (!updateResult.success) {
-          throw new Error(updateResult.message || '상품 정보 업데이트 실패');
-        }
-
-        // 2. 상품 등록
-        const registerResponse = await fetchWithCors(`${API_BASE_URL}/products/register`, {
-          method: 'POST',
-          body: JSON.stringify({ productCodes: [selectedProduct.product_code] })
-        });
-
-        const registerResult = await registerResponse.json();
-        
-        if (registerResult.success) {
-          alert('상품이 저장 후 등록되었습니다.');
-          
-          await fetchNewProducts();
-          await fetchRegisteredProducts();
-          
-          setSelectedProduct(null);
-          setSelectedRowIndex(null);
-          setEditableFields({ product_name: '', category: '', description: '' });
-        } else {
-          alert('상품 등록 실패: ' + registerResult.message);
-        }
-      } catch (error) {
-        console.error('상품 등록 오류:', error);
-        alert('상품 등록 중 오류가 발생했습니다.');
+    try {
+      setSelectedRowIndex(index);
+      const product = currentProducts[index];
+      
+      if (!product) {
+        console.error('선택된 상품이 존재하지 않습니다:', index);
+        return;
       }
-    } else {
-      alert('등록된 상품은 수정할 수 없습니다.');
+      
+      setSelectedProduct(product);
+      setIsEditMode(false);
+      setEditingProduct(null);
+      setError('');
+      
+      if (activeTab === 'new') {
+        setEditableFields({
+          product_name: product.product_name || '',
+          category: product.category || '',
+          description: product.description || ''
+        });
+      }
+    } catch (error) {
+      console.error('상품 선택 오류:', error);
+      setError('상품 선택 중 오류가 발생했습니다.');
     }
   };
 
-  // 수정 버튼 클릭 (등록된 상품 탭)
+  // handleSaveProduct 함수 수정
+const handleSaveProduct = async () => {
+  if (!selectedProduct) {
+    alert('저장할 상품을 선택해주세요.');
+    return;
+  }
+
+  if (activeTab === 'new' && selectedProduct.id) {
+    try {
+      setError('');
+      
+      // 유효성 검사
+      if (!editableFields.product_name.trim()) {
+        alert('상품명을 입력해주세요.');
+        return;
+      }
+
+      // ⭐ 새로운 API 엔드포인트 사용
+      const result = await fetchWithErrorHandling(`${API_BASE_URL}/products/save-and-register`, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: selectedProduct.id,
+          product_name: editableFields.product_name.trim(),
+          category: editableFields.category.trim(),
+          description: editableFields.description.trim(),
+          price: selectedProduct.price
+        })
+      });
+
+      if (result.success) {
+        alert('상품이 저장 후 등록되었습니다.');
+        
+        // 두 탭 모두 새로고침
+        await Promise.allSettled([
+          fetchNewProducts(),
+          fetchRegisteredProducts()
+        ]);
+        
+        setSelectedProduct(null);
+        setSelectedRowIndex(null);
+        setEditableFields({ product_name: '', category: '', description: '' });
+      }
+    } catch (error) {
+      console.error('상품 등록 오류:', error);
+      const errorMessage = error instanceof Error ? error.message : '상품 등록 중 오류가 발생했습니다.';
+      alert(errorMessage);
+    }
+  } else {
+    alert('등록할 수 있는 신규 상품을 선택해주세요.');
+  }
+};
+
+
   const handleEditProduct = () => {
     if (!selectedProduct) {
       alert('수정할 상품을 선택해주세요.');
@@ -381,9 +477,9 @@ const ShopManagement: React.FC = () => {
     
     setIsEditMode(true);
     setEditingProduct({ ...selectedProduct });
+    setError('');
   };
 
-  // ⭐ 수정 저장 개선 (등록된 상품 탭)
   const handleSaveEdit = async () => {
     if (!editingProduct || !editingProduct.id) {
       alert('수정할 상품 정보가 없습니다.');
@@ -391,18 +487,23 @@ const ShopManagement: React.FC = () => {
     }
 
     try {
-      const response = await fetchWithCors(`${API_BASE_URL}/products/registered/${editingProduct.id}`, {
+      setError('');
+      
+      if (!editingProduct.product_name.trim()) {
+        alert('상품명을 입력해주세요.');
+        return;
+      }
+
+      const result = await fetchWithErrorHandling(`${API_BASE_URL}/products/registered/${editingProduct.id}`, {
         method: 'PUT',
         body: JSON.stringify({
-          product_name: editingProduct.product_name,
-          category: editingProduct.category,
-          description: editingProduct.description,
+          product_name: editingProduct.product_name.trim(),
+          category: editingProduct.category.trim(),
+          description: editingProduct.description.trim(),
           price: editingProduct.price
         })
       });
 
-      const result = await response.json();
-      
       if (result.success) {
         alert('상품이 수정되었습니다.');
         
@@ -410,16 +511,14 @@ const ShopManagement: React.FC = () => {
         setIsEditMode(false);
         setEditingProduct(null);
         setSelectedProduct(editingProduct);
-      } else {
-        alert('상품 수정 실패: ' + result.message);
       }
     } catch (error) {
       console.error('상품 수정 오류:', error);
-      alert('상품 수정 중 오류가 발생했습니다.');
+      const errorMessage = error instanceof Error ? error.message : '상품 수정 중 오류가 발생했습니다.';
+      alert(errorMessage);
     }
   };
 
-  // ⭐ 삭제 버튼 클릭 개선 (소프트 삭제)
   const handleDeleteProduct = async () => {
     if (!selectedProduct || !selectedProduct.id) {
       alert('삭제할 상품을 선택해주세요.');
@@ -428,12 +527,12 @@ const ShopManagement: React.FC = () => {
 
     if (confirm('정말로 이 상품을 삭제하시겠습니까?')) {
       try {
-        const response = await fetchWithCors(`${API_BASE_URL}/products/registered/${selectedProduct.id}`, {
+        setError('');
+        
+        const result = await fetchWithErrorHandling(`${API_BASE_URL}/products/registered/${selectedProduct.id}`, {
           method: 'DELETE'
         });
 
-        const result = await response.json();
-        
         if (result.success) {
           alert('상품이 삭제되었습니다.');
           
@@ -442,41 +541,48 @@ const ShopManagement: React.FC = () => {
           setSelectedRowIndex(null);
           setIsEditMode(false);
           setEditingProduct(null);
-        } else {
-          alert('상품 삭제 실패: ' + result.message);
         }
       } catch (error) {
         console.error('상품 삭제 오류:', error);
-        alert('상품 삭제 중 오류가 발생했습니다.');
+        const errorMessage = error instanceof Error ? error.message : '상품 삭제 중 오류가 발생했습니다.';
+        alert(errorMessage);
       }
     }
   };
 
-  // 초기화
   const handleResetForm = () => {
-    if (activeTab === 'new' && selectedProduct) {
-      setEditableFields({
-        product_name: selectedProduct.product_name,
-        category: selectedProduct.category,
-        description: selectedProduct.description
-      });
-    } else if (activeTab === 'registered' && isEditMode && selectedProduct) {
-      setEditingProduct({ ...selectedProduct });
-    } else {
-      setSelectedProduct(null);
-      setSelectedRowIndex(null);
-      setEditableFields({ product_name: '', category: '', description: '' });
-      setIsEditMode(false);
-      setEditingProduct(null);
+    try {
+      if (activeTab === 'new' && selectedProduct) {
+        setEditableFields({
+          product_name: selectedProduct.product_name || '',
+          category: selectedProduct.category || '',
+          description: selectedProduct.description || ''
+        });
+      } else if (activeTab === 'registered' && isEditMode && selectedProduct) {
+        setEditingProduct({ ...selectedProduct });
+      } else {
+        setSelectedProduct(null);
+        setSelectedRowIndex(null);
+        setEditableFields({ product_name: '', category: '', description: '' });
+        setIsEditMode(false);
+        setEditingProduct(null);
+      }
+      setError('');
+    } catch (error) {
+      console.error('폼 초기화 오류:', error);
     }
   };
 
-  // 현재 표시할 상품 정보 결정
-  const getDisplayProduct = () => {
-    if (activeTab === 'registered' && isEditMode && editingProduct) {
-      return editingProduct;
+  const getDisplayProduct = (): Product | null => {
+    try {
+      if (activeTab === 'registered' && isEditMode && editingProduct) {
+        return editingProduct;
+      }
+      return selectedProduct;
+    } catch (error) {
+      console.error('표시 상품 결정 오류:', error);
+      return null;
     }
-    return selectedProduct;
   };
 
   const displayProduct = getDisplayProduct();
@@ -485,7 +591,39 @@ const ShopManagement: React.FC = () => {
     <div className="bg-white">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">상품 관리</h1>
+        <div className="flex items-center gap-2">
+          <div className={`w-3 h-3 rounded-full ${error.includes('서버') ? 'bg-red-500' : 'bg-green-500'}`}></div>
+          <span className="text-sm text-gray-600">
+            {error.includes('서버') ? '서버 연결 실패' : '서버 연결됨'}
+          </span>
+        </div>
       </div>
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex">
+            <div className="text-sm text-red-700">
+              <strong>오류:</strong> {error}
+              {error.includes('서버') && (
+                <div className="mt-2">
+                  <strong>해결 방법:</strong>
+                  <ul className="list-disc list-inside mt-1">
+                    <li>백엔드 서버가 실행 중인지 확인하세요 (포트 5001)</li>
+                    <li>터미널에서 <code>npm start</code> 명령어로 서버를 시작하세요</li>
+                    <li>방화벽이 포트 5001을 차단하고 있지 않은지 확인하세요</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setError('')}
+              className="ml-auto text-red-400 hover:text-red-600"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="border-b border-gray-200 mb-6">
         <div className="flex gap-8">
@@ -539,15 +677,15 @@ const ShopManagement: React.FC = () => {
               {currentProducts.length > 0 ? (
                 currentProducts.map((product, index) => (
                   <TableRow 
-                    key={product.id || index}
+                    key={product.id || `${product.product_code}-${index}`}
                     onClick={() => handleProductClick(index)}
                     isSelected={selectedRowIndex === index}
                   >
                     <TableCell ellipsis={true} title={product.product_name}>
-                      {product.product_name}
+                      {product.product_name || '상품명 없음'}
                     </TableCell>
-                    <TableCell>{product.price}원</TableCell>
-                    <TableCell>{product.product_code}</TableCell>
+                    <TableCell>{product.price ? `${product.price}원` : '가격 없음'}</TableCell>
+                    <TableCell>{product.product_code || '코드 없음'}</TableCell>
                   </TableRow>
                 ))
               ) : (
@@ -571,7 +709,6 @@ const ShopManagement: React.FC = () => {
           />
         </div>
 
-        {/* 우측 Card 영역 - 상품 상세 정보 */}
         <div 
           className="bg-white border border-gray-200"
           style={{
@@ -586,7 +723,6 @@ const ShopManagement: React.FC = () => {
           }}
         >
           <div className="space-y-4">
-            {/* 상품명 */}
             <Input
               label="상품명"
               value={
@@ -599,15 +735,18 @@ const ShopManagement: React.FC = () => {
               variant="product-name"
               disabled={activeTab === 'registered' && !isEditMode}
               onChange={(e) => {
-                if (activeTab === 'new') {
-                  setEditableFields(prev => ({ ...prev, product_name: e.target.value }));
-                } else if (isEditMode && editingProduct) {
-                  setEditingProduct(prev => prev ? { ...prev, product_name: e.target.value } : null);
+                try {
+                  if (activeTab === 'new') {
+                    setEditableFields(prev => ({ ...prev, product_name: e.target.value }));
+                  } else if (isEditMode && editingProduct) {
+                    setEditingProduct(prev => prev ? { ...prev, product_name: e.target.value } : null);
+                  }
+                } catch (error) {
+                  console.error('상품명 변경 오류:', error);
                 }
               }}
             />
 
-            {/* 가격 */}
             <Input
               label="가격"
               value={
@@ -619,13 +758,16 @@ const ShopManagement: React.FC = () => {
               variant="price"
               disabled={activeTab === 'new' || !isEditMode}
               onChange={(e) => {
-                if (isEditMode && editingProduct) {
-                  setEditingProduct(prev => prev ? { ...prev, price: e.target.value } : null);
+                try {
+                  if (isEditMode && editingProduct) {
+                    setEditingProduct(prev => prev ? { ...prev, price: e.target.value } : null);
+                  }
+                } catch (error) {
+                  console.error('가격 변경 오류:', error);
                 }
               }}
             />
 
-            {/* 상품 링크 */}
             <Input
               label="상품 링크"
               value={
@@ -637,13 +779,16 @@ const ShopManagement: React.FC = () => {
               variant="product-link"
               disabled={activeTab === 'new' || !isEditMode}
               onChange={(e) => {
-                if (isEditMode && editingProduct) {
-                  setEditingProduct(prev => prev ? { ...prev, product_url: e.target.value } : null);
+                try {
+                  if (isEditMode && editingProduct) {
+                    setEditingProduct(prev => prev ? { ...prev, product_url: e.target.value } : null);
+                  }
+                } catch (error) {
+                  console.error('상품 링크 변경 오류:', error);
                 }
               }}
             />
 
-            {/* 대표 이미지 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">대표 이미지</label>
               {displayProduct?.main_image ? (
@@ -656,7 +801,7 @@ const ShopManagement: React.FC = () => {
                       e.currentTarget.src = '/placeholder-image.png';
                     }}
                   />
-                  <div className="text-sm text-gray-600">
+                  <div className="text-sm text-gray-600 break-all">
                     {displayProduct.main_image}
                   </div>
                 </div>
@@ -667,7 +812,6 @@ const ShopManagement: React.FC = () => {
               )}
             </div>
 
-            {/* 상품코드 */}
             <Input
               label="상품코드"
               value={
@@ -681,7 +825,6 @@ const ShopManagement: React.FC = () => {
               onChange={() => {}}
             />
 
-            {/* 상품 카테고리 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">상품 카테고리</label>
               <div className="grid grid-cols-3 gap-2">
@@ -693,10 +836,14 @@ const ShopManagement: React.FC = () => {
                   }
                   disabled={activeTab === 'registered' && !isEditMode}
                   onChange={(e) => {
-                    if (activeTab === 'new') {
-                      setEditableFields(prev => ({ ...prev, category: e.target.value }));
-                    } else if (isEditMode && editingProduct) {
-                      setEditingProduct(prev => prev ? { ...prev, category: e.target.value } : null);
+                    try {
+                      if (activeTab === 'new') {
+                        setEditableFields(prev => ({ ...prev, category: e.target.value }));
+                      } else if (isEditMode && editingProduct) {
+                        setEditingProduct(prev => prev ? { ...prev, category: e.target.value } : null);
+                      }
+                    } catch (error) {
+                      console.error('카테고리 변경 오류:', error);
                     }
                   }}
                 >
@@ -714,7 +861,6 @@ const ShopManagement: React.FC = () => {
               </div>
             </div>
 
-            {/* 상품설명 */}
             <Textarea
               label="상품설명"
               value={
@@ -727,28 +873,32 @@ const ShopManagement: React.FC = () => {
               variant="product-description"
               disabled={activeTab === 'registered' && !isEditMode}
               onChange={(e) => {
-                if (activeTab === 'new') {
-                  setEditableFields(prev => ({ ...prev, description: e.target.value }));
-                } else if (isEditMode && editingProduct) {
-                  setEditingProduct(prev => prev ? { ...prev, description: e.target.value } : null);
+                try {
+                  if (activeTab === 'new') {
+                    setEditableFields(prev => ({ ...prev, description: e.target.value }));
+                  } else if (isEditMode && editingProduct) {
+                    setEditingProduct(prev => prev ? { ...prev, description: e.target.value } : null);
+                  }
+                } catch (error) {
+                  console.error('상품 설명 변경 오류:', error);
                 }
               }}
             />
 
-            {/* 버튼 영역 */}
             <div className="flex gap-2 mt-8">
               {activeTab === 'new' ? (
                 <>
                   <Button 
                     variant="save" 
                     onClick={handleSaveProduct}
-                    disabled={!selectedProduct}
+                    disabled={!selectedProduct || isLoading}
                   >
                     저장 후 등록
                   </Button>
                   <Button 
                     variant="reset" 
                     onClick={handleResetForm}
+                    disabled={isLoading}
                   >
                     초기화
                   </Button>
@@ -760,13 +910,14 @@ const ShopManagement: React.FC = () => {
                       <Button 
                         variant="save" 
                         onClick={handleSaveEdit}
-                        disabled={!editingProduct}
+                        disabled={!editingProduct || isLoading}
                       >
                         저장
                       </Button>
                       <Button 
                         variant="reset" 
                         onClick={handleResetForm}
+                        disabled={isLoading}
                       >
                         취소
                       </Button>
@@ -776,14 +927,14 @@ const ShopManagement: React.FC = () => {
                       <Button 
                         variant="edit" 
                         onClick={handleEditProduct}
-                        disabled={!selectedProduct}
+                        disabled={!selectedProduct || isLoading}
                       >
                         수정
                       </Button>
                       <Button 
                         variant="delete" 
                         onClick={handleDeleteProduct}
-                        disabled={!selectedProduct}
+                        disabled={!selectedProduct || isLoading}
                       >
                         삭제
                       </Button>
