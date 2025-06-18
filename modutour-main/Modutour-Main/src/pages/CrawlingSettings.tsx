@@ -39,6 +39,22 @@ const CrawlingSettings: React.FC = () => {
             variant="product-link"
           />
 
+          <Input
+            label="접두어 사용 설정"
+            placeholder="예) 여름휴가 추석여행"
+            helpText="해당 필드에 기워드 입력 시 등록된 상품의 상품명에 일괄적으로 접두어 사용 적용"
+            variant="product-link"
+          />  
+
+
+          <Input
+            label="미두어 사용 설정"
+            placeholder="예) 겨울여행 패키지여행"
+            helpText="해당 필드에 기워드 입력 시 등록된 상품의 상품명에 일괄적으로 미두어 사용 적용"
+            variant="product-link"
+          />  
+
+
           <Button 
             type="primary"
             style={{

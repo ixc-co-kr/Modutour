@@ -10,12 +10,12 @@ const PORT = process.env.PORT || 5001;
 
 // ⭐ CORS 설정 (모든 도메인 허용)
 app.use(cors({
-  origin: 'http://localhost:5173',  // Vite dev 서버(또는 CRA) 주소
+  origin: ['http://localhost:5173','https://modetour.name'],  // Vite dev 서버(또는 CRA) 주소
   credentials: true,
 }));
 // preflight (OPTIONS) 도 허용
 app.options('*', cors({
-  origin: 'http://localhost:5173',
+  origin: ['http://localhost:5173','https://modetour.name'],
   credentials: true,
 }));
 
@@ -33,8 +33,6 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true
 });
 
 // ⭐ 데이터베이스 연결 테스트
