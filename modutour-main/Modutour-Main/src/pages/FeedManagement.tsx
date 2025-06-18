@@ -9,7 +9,7 @@ interface FeedStats {
   totalRegistered: number;
   todayNewCount: number;
   lastEpTime: string;
-  epProductCount: number;  // ⭐ 피드 내 상품 수
+  epProductCount: number;
   epUrl: string;
 }
 
@@ -18,13 +18,20 @@ const FeedManagement: React.FC = () => {
     totalRegistered: 0,
     todayNewCount: 0,
     lastEpTime: '생성된 피드 없음',
-    epProductCount: 0,  // ⭐ 숫자 타입으로 명확히 초기화
+    epProductCount: 0,
     epUrl: ''
   });
-  
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
 
+  // ⭐ URL 텍스트 자르기 함수
+  const truncateUrl = (url: string, maxLength: number = 20) => {
+    if (!url) return '생성된 피드 없음';
+    if (url.length <= maxLength) return url;
+    return url.substring(0, maxLength) + '...';
+  };
+
+  // 피드 관리 통계 조회
   const fetchFeedStats = async () => {
     try {
       setLoading(true);
@@ -37,20 +44,19 @@ const FeedManagement: React.FC = () => {
         credentials: 'include',
         mode: 'cors'
       });
-  
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-  
+
       const result = await response.json();
       
       if (result.success && result.data) {
-        // ⭐ 데이터 검증 및 기본값 설정
         const safeData = {
           totalRegistered: result.data.totalRegistered || 0,
           todayNewCount: result.data.todayNewCount || 0,
           lastEpTime: result.data.lastEpTime || '생성된 피드 없음',
-          epProductCount: result.data.epProductCount || 0,  // 숫자 타입 보장
+          epProductCount: result.data.epProductCount || 0,
           epUrl: result.data.epUrl || ''
         };
         
@@ -66,13 +72,13 @@ const FeedManagement: React.FC = () => {
       setLoading(false);
     }
   };
-  
-  // ⭐ 컴포넌트 마운트 시 통계 조회
+
+  // 컴포넌트 마운트 시 통계 조회
   useEffect(() => {
     fetchFeedStats();
   }, []);
 
-  // ⭐ URL 복사 함수
+  // URL 복사 함수
   const handleCopyUrl = async () => {
     try {
       if (!stats.epUrl) {
@@ -88,7 +94,7 @@ const FeedManagement: React.FC = () => {
     }
   };
 
-  // ⭐ 피드 생성 함수
+  // 피드 생성 함수
   const handleGenerateFeed = async () => {
     try {
       setGenerating(true);
@@ -157,13 +163,8 @@ const FeedManagement: React.FC = () => {
             마지막 피드 생성 일시
           </Text>
           <div style={valueStyle}>
-            {loading ? '로딩중...' : 
-            stats.epProductCount !== undefined ? 
-            `${stats.epProductCount.toLocaleString()}개` : 
-            '0개'
-            }
-</div>
-
+            {loading ? '로딩중...' : stats.lastEpTime}
+          </div>
         </Card>
 
         <Card className="p-6">
@@ -171,10 +172,11 @@ const FeedManagement: React.FC = () => {
             피드 내 상품 수
           </Text>
           <div style={valueStyle}>
-            {loading ? '로딩중...' : `${stats.epProductCount.toLocaleString()}개`}
+            {loading ? '로딩중...' : `${(stats?.epProductCount ?? 0).toLocaleString()}개`}
           </div>
         </Card>
         
+        {/* ⭐ 피드 URL 카드 - 말줄임표 처리 적용 */}
         <Card className="p-6">
           <Text type="secondary" style={labelStyle} className="block mb-2">
             피드 URL
@@ -185,16 +187,31 @@ const FeedManagement: React.FC = () => {
               icon={<CopyOutlined />}
               onClick={handleCopyUrl}
               disabled={loading || !stats.epUrl}
+              title={stats.epUrl || '생성된 피드 없음'} // 전체 URL을 툴팁으로 표시
               style={{
                 width: '241px',
                 height: '38px',
                 gap: '8px',
                 borderRadius: '6px',
                 borderWidth: '1px',
-                border: '1px solid #00000026'
+                border: '1px solid #00000026',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                padding: '0 12px',
+                textAlign: 'left' as const
               }}
             >
-              {stats.epUrl || '생성된 피드 없음'}
+              <span style={{
+                flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap' as const,
+                marginLeft: '8px',
+                fontSize: '13px'
+              }}>
+                {truncateUrl(stats.epUrl, 30)}
+              </span>
             </Button>
           </div>
         </Card>
