@@ -208,9 +208,9 @@ const fetchRegisteredProducts = async () => {
   try {
     console.log('등록된 상품 조회 시작...');
     
-    // ⭐ 파라미터 수정 (limit을 20으로 고정)
+    // ⭐ 현재 페이지와 페이지당 아이템 수를 사용하도록 수정
     const result = await fetchWithErrorHandling(
-      `${API_BASE_URL}/products/registered?page=1&limit=20&t=${Date.now()}`
+      `${API_BASE_URL}/products/registered?page=${currentPage}&limit=${ITEMS_PER_PAGE}&t=${Date.now()}`
     );
     
     console.log('등록된 상품 API 응답:', result);
