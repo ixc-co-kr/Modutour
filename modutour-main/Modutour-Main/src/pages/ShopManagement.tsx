@@ -56,7 +56,7 @@ const ShopManagement: React.FC = () => {
 
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  const API_BASE_URL = 'http://localhost:5001/api';
+  const API_BASE_URL = 'https://modetour.name/api';
   const isInitialMount = useRef(true);
   const crawlingInterval = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
