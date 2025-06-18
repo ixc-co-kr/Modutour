@@ -1,27 +1,131 @@
-import React from 'react';
-import { CopyOutlined } from '@ant-design/icons';
-import { Button, Typography } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { CopyOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Typography, message } from 'antd';
 import { Card } from '../components/ui/Card';
 
 const { Text } = Typography;
 
+interface FeedStats {
+  totalRegistered: number;
+  todayNewCount: number;
+  lastEpTime: string;
+  epProductCount: number;  // ⭐ 피드 내 상품 수
+  epUrl: string;
+}
+
 const FeedManagement: React.FC = () => {
-  const handleCopyUrl = () => {
-    const url = 'https://modetour.name/ep.txt';
-    navigator.clipboard.writeText(url).then(() => {
-      console.log('URL copied to clipboard');
-      // 필요시 성공 메시지 표시
-    });
+  const [stats, setStats] = useState<FeedStats>({
+    totalRegistered: 0,
+    todayNewCount: 0,
+    lastEpTime: '생성된 피드 없음',
+    epProductCount: 0,  // ⭐ 숫자 타입으로 명확히 초기화
+    epUrl: ''
+  });
+  
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  const fetchFeedStats = async () => {
+    try {
+      setLoading(true);
+      
+      const response = await fetch('http://localhost:5001/api/dashboard/stats', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        mode: 'cors'
+      });
+  
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+  
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // ⭐ 데이터 검증 및 기본값 설정
+        const safeData = {
+          totalRegistered: result.data.totalRegistered || 0,
+          todayNewCount: result.data.todayNewCount || 0,
+          lastEpTime: result.data.lastEpTime || '생성된 피드 없음',
+          epProductCount: result.data.epProductCount || 0,  // 숫자 타입 보장
+          epUrl: result.data.epUrl || ''
+        };
+        
+        setStats(safeData);
+        console.log('피드 관리 통계 로딩 완료:', safeData);
+      } else {
+        throw new Error(result.message || '통계 조회 실패');
+      }
+    } catch (error) {
+      console.error('피드 관리 통계 조회 오류:', error);
+      message.error('통계 정보를 불러오는데 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // ⭐ 컴포넌트 마운트 시 통계 조회
+  useEffect(() => {
+    fetchFeedStats();
+  }, []);
+
+  // ⭐ URL 복사 함수
+  const handleCopyUrl = async () => {
+    try {
+      if (!stats.epUrl) {
+        message.warning('생성된 피드가 없습니다.');
+        return;
+      }
+      
+      await navigator.clipboard.writeText(stats.epUrl);
+      message.success('피드 URL이 클립보드에 복사되었습니다.');
+    } catch (error) {
+      console.error('URL 복사 실패:', error);
+      message.error('URL 복사에 실패했습니다.');
+    }
   };
 
-  const handleGenerateFeed = () => {
-    console.log('피드 생성 시작');
-    // 피드 생성 로직
+  // ⭐ 피드 생성 함수
+  const handleGenerateFeed = async () => {
+    try {
+      setGenerating(true);
+      
+      const response = await fetch('http://localhost:5001/api/feed/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        message.success(result.message);
+        // 피드 생성 후 통계 새로고침
+        await fetchFeedStats();
+      } else {
+        throw new Error(result.message || '피드 생성 실패');
+      }
+    } catch (error) {
+      console.error('피드 생성 오류:', error);
+      message.error('피드 생성에 실패했습니다.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const labelStyle = {
-    fontSize: '14px', // SM size
-    color: '#00000073' // secondary color
+    fontSize: '14px',
+    color: '#00000073'
   };
 
   const valueStyle = {
@@ -36,21 +140,39 @@ const FeedManagement: React.FC = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">피드 관리</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">피드 관리</h1>
+        <Button 
+          icon={<ReloadOutlined />} 
+          onClick={fetchFeedStats}
+          loading={loading}
+        >
+          새로고침
+        </Button>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="p-6">
           <Text type="secondary" style={labelStyle} className="block mb-2">
             마지막 피드 생성 일시
           </Text>
-          <div style={valueStyle}>2025-06-05 16:21</div>
+          <div style={valueStyle}>
+            {loading ? '로딩중...' : 
+            stats.epProductCount !== undefined ? 
+            `${stats.epProductCount.toLocaleString()}개` : 
+            '0개'
+            }
+</div>
+
         </Card>
 
         <Card className="p-6">
           <Text type="secondary" style={labelStyle} className="block mb-2">
             피드 내 상품 수
           </Text>
-          <div style={valueStyle}>1,482개</div>
+          <div style={valueStyle}>
+            {loading ? '로딩중...' : `${stats.epProductCount.toLocaleString()}개`}
+          </div>
         </Card>
         
         <Card className="p-6">
@@ -62,6 +184,7 @@ const FeedManagement: React.FC = () => {
               type="default"
               icon={<CopyOutlined />}
               onClick={handleCopyUrl}
+              disabled={loading || !stats.epUrl}
               style={{
                 width: '241px',
                 height: '38px',
@@ -71,7 +194,7 @@ const FeedManagement: React.FC = () => {
                 border: '1px solid #00000026'
               }}
             >
-              https://modetour.name/ep.txt
+              {stats.epUrl || '생성된 피드 없음'}
             </Button>
           </div>
         </Card>
@@ -84,16 +207,17 @@ const FeedManagement: React.FC = () => {
             <Button 
               type="primary"
               onClick={handleGenerateFeed}
+              loading={generating}
               style={{
                 width: '109px',
                 height: '38px',
                 gap: '8px',
-                borderRadius: '6px', // Button/borderRadius
+                borderRadius: '6px',
                 borderWidth: '1px',
-                paddingRight: '16px', // Button/paddingContentHorizontal
-                paddingLeft: '16px', // Button/paddingContentHorizontal
-                background: '#1677FF', // var(--Button-colorPrimary, #1677FF)
-                border: '1px solid #1677FF', // 1px solid var(--Button-colorPrimary, #1677FF)
+                paddingRight: '16px',
+                paddingLeft: '16px',
+                background: '#1677FF',
+                border: '1px solid #1677FF',
                 fontFamily: 'Pretendard',
                 fontWeight: 400,
                 fontSize: '14px',

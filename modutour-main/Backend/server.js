@@ -3,19 +3,19 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const cron = require('node-cron');
 const path = require('path');
+const fs = require('fs');
 const ModeTourCrawler = require('./crawler/modeTourCrawler');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// ⭐ CORS 설정 (모든 도메인 허용)
+// ⭐ CORS 설정 (수정됨)
 app.use(cors({
-  origin: ['http://localhost:5173','https://modetour.name'],  // Vite dev 서버(또는 CRA) 주소
+  origin: ['http://localhost:5173', 'https://modetour.name'],
   credentials: true,
 }));
-// preflight (OPTIONS) 도 허용
 app.options('*', cors({
-  origin: ['http://localhost:5173','https://modetour.name'],
+  origin: ['http://localhost:5173', 'https://modetour.name'],
   credentials: true,
 }));
 
@@ -23,7 +23,7 @@ app.options('*', cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// ⭐ 데이터베이스 연결 설정
+// ⭐ 데이터베이스 연결 설정 (MySQL2 경고 해결)
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
@@ -32,8 +32,88 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  acquireTimeout: 60000,
+  acquireTimeout: 60000
+  // timeout과 reconnect 옵션 제거됨
 });
+
+
+
+function getLatestEPFile() {
+  try {
+    const epDir = path.join(__dirname, 'public', 'ep');
+    
+    // ep 디렉토리가 존재하지 않으면 생성
+    if (!fs.existsSync(epDir)) {
+      fs.mkdirSync(epDir, { recursive: true });
+      return null;
+    }
+    
+    // naver_ep_로 시작하는 .txt 파일들 찾기
+    const files = fs.readdirSync(epDir)
+      .filter(file => file.startsWith('naver_ep_') && file.endsWith('.txt'))
+      .map(file => {
+        const filePath = path.join(epDir, file);
+        const stats = fs.statSync(filePath);
+        return {
+          name: file,
+          path: filePath,
+          mtime: stats.mtime,
+          size: stats.size
+        };
+      })
+      .sort((a, b) => b.mtime - a.mtime); // 최신 파일 순으로 정렬
+    
+    return files.length > 0 ? files[0] : null;
+  } catch (error) {
+    console.error('최신 EP 파일 찾기 실패:', error);
+    return null;
+  }
+}
+
+function validateTravelProductData(product) {
+  const errors = [];
+  
+  // 상품 ID 검증
+  if (!product.product_code || product.product_code.length > 50) {
+    errors.push('상품 ID는 필수이며 50자 이하여야 합니다.');
+  }
+  
+  // 상품명 검증
+  if (!product.product_name || product.product_name.length > 100) {
+    errors.push('상품명은 필수이며 100자 이하여야 합니다.');
+  }
+  
+  // 가격 검증
+  const price = parseInt(product.price?.toString().replace(/[^\d]/g, '')) || 0;
+  if (price <= 0) {
+    errors.push('가격은 0보다 큰 정수여야 합니다.');
+  }
+  
+  // URL 검증
+  if (!product.product_url || !product.product_url.startsWith('http')) {
+    errors.push('상품 URL은 필수이며 http://로 시작해야 합니다.');
+  }
+  
+  // 이미지 URL 검증
+  if (!product.main_image || !product.main_image.startsWith('http')) {
+    errors.push('이미지 URL은 필수이며 http://로 시작해야 합니다.');
+  }
+  
+  return errors;
+}
+
+function sanitizeEPText(text) {
+  if (!text) return '';
+  
+  return text
+    .replace(/\t/g, ' ')    // 탭을 공백으로 변경
+    .replace(/\n/g, ' ')    // 엔터를 공백으로 변경
+    .replace(/\r/g, ' ')    // 캐리지 리턴을 공백으로 변경
+    .replace(/\s+/g, ' ')   // 연속된 공백을 하나로 변경
+    .trim();                // 앞뒤 공백 제거
+}
+
+
 
 // ⭐ 데이터베이스 연결 테스트
 async function testDatabaseConnection() {
@@ -53,6 +133,8 @@ async function testDatabaseConnection() {
     return false;
   }
 }
+
+
 
 // ⭐ 테이블 생성 함수
 async function createTables() {
@@ -140,6 +222,60 @@ async function startCrawling(isTestMode = false) {
   }
 }
 
+// ⭐ 네이버 EP 양식 데이터 검증 함수
+function validateEPData(product) {
+  const errors = [];
+  
+  // 상품 ID 검증 (영문, 숫자, -, _, 공백만 허용, 최대 50자)
+  if (!product.product_code || product.product_code.length > 50) {
+    errors.push('상품 ID는 필수이며 50자 이하여야 합니다.');
+  }
+  
+  // 상품명 검증 (최대 100자, 탭/엔터 문자 금지)
+  if (!product.product_name || product.product_name.length > 100) {
+    errors.push('상품명은 필수이며 100자 이하여야 합니다.');
+  }
+  if (product.product_name && (product.product_name.includes('\t') || product.product_name.includes('\n'))) {
+    errors.push('상품명에는 탭이나 엔터 문자를 사용할 수 없습니다.');
+  }
+  
+  // 가격 검증 (정수만 허용)
+  const price = parseInt(product.price);
+  if (isNaN(price) || price < 0) {
+    errors.push('가격은 0 이상의 정수여야 합니다.');
+  }
+  
+  // URL 검증 (최대 255바이트, http://로 시작)
+  if (!product.product_url || !product.product_url.startsWith('http')) {
+    errors.push('상품 URL은 필수이며 http://로 시작해야 합니다.');
+  }
+  if (product.product_url && Buffer.byteLength(product.product_url, 'utf8') > 255) {
+    errors.push('상품 URL은 255바이트 이하여야 합니다.');
+  }
+  
+  // 이미지 URL 검증
+  if (!product.image_url || !product.image_url.startsWith('http')) {
+    errors.push('이미지 URL은 필수이며 http://로 시작해야 합니다.');
+  }
+  if (product.image_url && Buffer.byteLength(product.image_url, 'utf8') > 255) {
+    errors.push('이미지 URL은 255바이트 이하여야 합니다.');
+  }
+  
+  return errors;
+}
+
+// ⭐ 네이버 EP 양식 텍스트 정리 함수
+function sanitizeEPText(text) {
+  if (!text) return '';
+  
+  return text
+    .replace(/\t/g, ' ')    // 탭을 공백으로 변경
+    .replace(/\n/g, ' ')    // 엔터를 공백으로 변경
+    .replace(/\r/g, ' ')    // 캐리지 리턴을 공백으로 변경
+    .replace(/\s+/g, ' ')   // 연속된 공백을 하나로 변경
+    .trim();                // 앞뒤 공백 제거
+}
+
 // ⭐ API 라우트 설정
 
 // 1. 테스트 크롤링 API (1페이지만)
@@ -223,10 +359,10 @@ app.get('/api/crawl/status', async (req, res) => {
   }
 });
 
-// ⭐ 대시보드 통계 API (절대 경로 사용)
+// ⭐ 대시보드 통계 API 수정 (기존 EP 파일 활용)
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
-    console.log('대시보드 통계 조회 시작...');
+    console.log('피드 관리 대시보드 통계 조회 시작...');
     
     const connection = await pool.getConnection();
     
@@ -241,92 +377,212 @@ app.get('/api/dashboard/stats', async (req, res) => {
       WHERE DATE(created_at) = CURDATE() AND product_code NOT LIKE 'REG%'
     `);
     
-    // ⭐ 3. EP 파일 정보 조회 (절대 경로 사용)
-    const fs = require('fs');
-    const path = require('path');
-    let lastEpTime = null;
-    let epUrl = null;
-    let epFileName = null;
+    // ⭐ 3. 기존 EP 파일 정보 조회
+    const latestEPFile = getLatestEPFile();
+    let lastEpTime = '생성된 피드 없음';
+    let epProductCount = 0;
+    let epUrl = '';
     
-    try {
-      // ⭐ 절대 경로 사용
-      const epDirectory = path.join(__dirname, 'public', 'ep');
-      console.log('EP 디렉토리 경로:', epDirectory);
+    if (latestEPFile) {
+      // 파일 생성 시간 포맷팅
+      lastEpTime = latestEPFile.mtime.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).replace(/\. /g, '-').replace('.', '').replace(',', '');
       
-      // 디렉토리가 없으면 생성
-      if (!fs.existsSync(epDirectory)) {
-        fs.mkdirSync(epDirectory, { recursive: true });
-        console.log('EP 디렉토리 생성됨:', epDirectory);
-      }
+      // EP 파일 내 상품 수 계산 (<<<begin>>> 태그 개수)
+      const epContent = fs.readFileSync(latestEPFile.path, 'utf8');
+      const beginMatches = epContent.match(/<<<begin>>>/g);
+      epProductCount = beginMatches ? beginMatches.length : 0;
       
-      // 파일 목록 조회
-      const allFiles = fs.readdirSync(epDirectory);
-      console.log('EP 디렉토리 전체 파일:', allFiles);
+      // 웹 접근 가능한 EP URL 생성
+      epUrl = `https://modetour.name/ep/${latestEPFile.name}`;
       
-      const files = allFiles
-        .filter(file => file.endsWith('.txt'))
-        .map(file => {
-          const filePath = path.join(epDirectory, file);
-          const stats = fs.statSync(filePath);
-          return {
-            fileName: file,
-            createdAt: stats.mtime,
-            size: stats.size
-          };
-        })
-        .sort((a, b) => b.createdAt - a.createdAt);
-      
-      console.log('EP 파일 목록:', files);
-      
-      if (files.length > 0) {
-        epFileName = files[0].fileName;
-        lastEpTime = files[0].createdAt.toISOString().slice(0, 16).replace('T', ' ');
-        epUrl = `http://localhost:${PORT}/ep/${epFileName}`;
-        
-        console.log('최신 EP 파일:', {
-          fileName: epFileName,
-          lastEpTime,
-          epUrl,
-          size: files[0].size
-        });
-      } else {
-        console.log('EP 파일이 없습니다.');
-        epUrl = null;
-      }
-      
-    } catch (epError) {
-      console.error('EP 파일 정보 조회 실패:', epError);
+      console.log(`기존 EP 파일 정보: ${latestEPFile.name}, 상품수=${epProductCount}, URL=${epUrl}`);
+    } else {
+      console.log('기존 EP 파일이 존재하지 않습니다.');
     }
     
     connection.release();
     
-    const stats = {
+    const result = {
       totalRegistered: totalRegistered[0].total,
       todayNewCount: todayNew[0].today_count,
-      lastEpTime: lastEpTime || new Date().toISOString().slice(0, 16).replace('T', ' '),
-      epUrl: epUrl,
-      epFileName: epFileName
+      lastEpTime: lastEpTime,
+      epProductCount: epProductCount,
+      epUrl: epUrl
     };
-    
-    console.log('대시보드 통계:', stats);
     
     res.json({
       success: true,
-      data: stats
+      message: '피드 관리 통계 조회 성공',
+      data: result
     });
     
   } catch (error) {
-    console.error('대시보드 통계 조회 실패:', error);
+    console.error('피드 관리 통계 조회 오류:', error);
     res.status(500).json({
       success: false,
-      message: '대시보드 통계 조회 중 오류가 발생했습니다.',
+      message: '피드 관리 통계 조회 실패',
       error: error.message
     });
   }
 });
 
-// ⭐ EP 파일 서빙 경로 수정
-app.use('/ep', express.static(path.join(__dirname, 'public', 'ep')));
+app.post('/api/feed/generate', async (req, res) => {
+  try {
+    console.log('🧳 등록된 상품 기반 EP 피드 생성 시작...');
+    
+    const connection = await pool.getConnection();
+    
+    // registered_products 테이블에서 등록된 상품들 조회
+    const [products] = await connection.execute(`
+      SELECT 
+        product_code, 
+        product_name, 
+        price, 
+        main_image, 
+        product_url, 
+        category,
+        description,
+        registered_at
+      FROM registered_products 
+      WHERE is_deleted = FALSE 
+      ORDER BY registered_at DESC
+    `);
+    
+    connection.release();
+    
+    console.log(`📊 등록된 상품 수: ${products.length}개`);
+    
+    if (products.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: '등록된 상품이 없어 피드를 생성할 수 없습니다. 먼저 신규 상품에서 상품을 등록해주세요.'
+      });
+    }
+    
+    // 생성 번호 생성 (타임스탬프 기반)
+    const generateNumber = Date.now();
+    const epFileName = `naver_ep_${generateNumber}.txt`;
+    const epDir = path.join(__dirname, 'public', 'ep');
+    const epFilePath = path.join(epDir, epFileName);
+    
+    // 디렉토리 생성 (존재하지 않는 경우)
+    if (!fs.existsSync(epDir)) {
+      fs.mkdirSync(epDir, { recursive: true });
+    }
+    
+    // 네이버 EP 양식으로 파일 내용 생성
+    let epContent = '';
+    let validProducts = 0;
+    let invalidProducts = 0;
+    
+    products.forEach((product, index) => {
+      try {
+        // 여행 상품 데이터 검증
+        const errors = validateTravelProductData(product);
+        if (errors.length > 0) {
+          console.warn(`⚠️ 상품 ${product.product_code} 검증 실패:`, errors);
+          invalidProducts++;
+          return;
+        }
+        
+        // 네이버 EP 양식 작성
+        epContent += `<<<begin>>>\n`;
+        epContent += `<<<mapid>>>${sanitizeEPText(product.product_code)}\n`;
+        epContent += `<<<pname>>>${sanitizeEPText(product.product_name)}\n`;
+        
+        // 가격 처리 (정수만 허용)
+        const price = parseInt(product.price?.toString().replace(/[^\d]/g, '')) || 0;
+        epContent += `<<<price>>>${price}\n`;
+        
+        epContent += `<<<pgurl>>>${product.product_url}\n`;
+        epContent += `<<<igurl>>>${product.main_image}\n`;
+        
+        // 여행 카테고리 설정
+        const travelCategory = product.category || '해외여행';
+        epContent += `<<<cate1>>>${sanitizeEPText(travelCategory)}\n`;
+        
+        // 여행 상품은 배송료 없음
+        epContent += `<<<deliv>>>0\n`;
+        
+        // 옵션 필드 추가
+        if (travelCategory && travelCategory.trim()) {
+          epContent += `<<<brand>>>${sanitizeEPText(travelCategory)}\n`;
+        }
+        
+        // 설명을 이벤트 필드로 활용
+        if (product.description && product.description.trim()) {
+          const eventText = sanitizeEPText(product.description).substring(0, 50);
+          epContent += `<<<event>>>${eventText}\n`;
+        }
+        
+        epContent += `<<<ftend>>>\n\n`;
+        validProducts++;
+        
+        // 진행 상황 로그
+        if ((index + 1) % 50 === 0) {
+          console.log(`📝 처리 진행: ${index + 1}/${products.length} 완료`);
+        }
+        
+      } catch (productError) {
+        console.error(`❌ 상품 ${product.product_code} 처리 실패:`, productError);
+        invalidProducts++;
+      }
+    });
+    
+    if (validProducts === 0) {
+      return res.status(400).json({
+        success: false,
+        message: '유효한 상품이 없어 EP 파일을 생성할 수 없습니다.'
+      });
+    }
+    
+    // UTF-8 인코딩으로 파일 저장
+    fs.writeFileSync(epFilePath, epContent, { encoding: 'utf8' });
+    
+    console.log(`✅ EP 파일 생성 완료: ${epFileName}`);
+    console.log(`📊 처리 결과: 성공 ${validProducts}개, 실패 ${invalidProducts}개`);
+    console.log(`📁 파일 크기: ${(Buffer.byteLength(epContent, 'utf8') / 1024).toFixed(2)} KB`);
+    
+    // 생성 시간 포맷팅
+    const generatedAt = new Date().toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).replace(/\. /g, '-').replace('.', '').replace(',', '');
+    
+    res.json({
+      success: true,
+      message: `EP 피드 생성 완료 (유효한 상품 ${validProducts}개)`,
+      data: {
+        fileName: epFileName,
+        totalProducts: products.length,
+        validProducts: validProducts,
+        invalidProducts: invalidProducts,
+        epUrl: `https://modetour.name/ep/${epFileName}`,
+        fileSize: `${(Buffer.byteLength(epContent, 'utf8') / 1024).toFixed(2)} KB`,
+        generatedAt: generatedAt
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ EP 피드 생성 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: 'EP 피드 생성 실패',
+      error: error.message
+    });
+  }
+});
 
 
 // ⭐ 5. 신규 상품 조회 API (description 필드 추가)
@@ -558,18 +814,6 @@ app.post('/api/products/save-and-register', async (req, res) => {
     
     await connection.commit();
     
-    // ⭐ 5. 자동 EP 생성
-    setTimeout(async () => {
-      try {
-        console.log('🔄 저장 후 등록 완료 - 자동 EP 생성...');
-        const NaverEPService = require('./services/NaverEPService');
-        await NaverEPService.generateNaverEP();
-        console.log('✅ 자동 EP 생성 완료');
-      } catch (error) {
-        console.error('자동 EP 생성 실패:', error);
-      }
-    }, 1000);
-    
     res.json({
       success: true,
       message: '상품이 저장 후 등록되었습니다.',
@@ -681,20 +925,6 @@ app.post('/api/products/register', async (req, res) => {
 
     await connection.commit();
 
-    // ⭐ 상품 등록 완료 후 자동으로 EP 생성
-    if (registeredProducts.length > 0) {
-      setTimeout(async () => {
-        try {
-          console.log('🔄 상품 등록 완료 후 자동 EP 생성...');
-          const NaverEPService = require('./services/NaverEPService');
-          await NaverEPService.generateNaverEP();
-          console.log('✅ 자동 EP 생성 완료');
-        } catch (error) {
-          console.error('자동 EP 생성 실패:', error);
-        }
-      }, 2000);
-    }
-
     res.json({
       success: true,
       message: `${registeredProducts.length}개 상품이 등록되었습니다.`,
@@ -802,8 +1032,28 @@ app.delete('/api/products/registered/:id', async (req, res) => {
   }
 });
 
-// ⭐ EP 파일 서빙을 위한 정적 파일 라우트 추가
-app.use('/ep', express.static('./public/ep'));
+// ⭐ 네이버 EP 파일 정적 서빙 설정 (UTF-8 인코딩 보장)
+app.use('/ep.txt', (req, res) => {
+  const epFilePath = path.join(__dirname, 'ep.txt');
+  
+  // 파일 존재 여부 확인
+  if (fs.existsSync(epFilePath)) {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="ep.txt"');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.sendFile(epFilePath);
+  } else {
+    res.status(404).json({
+      success: false,
+      message: '네이버 EP 피드 파일이 존재하지 않습니다. 먼저 피드를 생성해주세요.'
+    });
+  }
+});
+
+// 기존 EP 디렉토리 서빙도 유지
+app.use('/ep', express.static(path.join(__dirname, 'public', 'ep')));
 
 // ⭐ 자동 크롤링 스케줄 설정 (매일 오전 1시 - 전체 크롤링)
 cron.schedule('0 1 * * *', () => {
@@ -835,10 +1085,17 @@ async function startServer() {
       console.log(`   - POST http://localhost:${PORT}/api/crawl/start (전체 크롤링)`);
       console.log(`   - GET  http://localhost:${PORT}/api/crawl/status (상태 확인)`);
       console.log(`   - GET  http://localhost:${PORT}/api/dashboard/stats (대시보드 통계)`);
+      console.log(`   - POST http://localhost:${PORT}/api/feed/generate (네이버 EP 피드 생성)`);
       console.log(`   - GET  http://localhost:${PORT}/api/products/new (신규 상품)`);
       console.log(`   - GET  http://localhost:${PORT}/api/products/registered (등록 상품)`);
       console.log(`   - POST http://localhost:${PORT}/api/products/save-and-register (저장 후 등록)`);
-      console.log(`   - GET  http://localhost:${PORT}/ep/ (EP 파일 다운로드)`);
+      console.log(`   - GET  http://localhost:${PORT}/ep.txt (네이버 EP 파일 다운로드)`);
+      console.log('');
+      console.log('📋 네이버 EP 양식 준수 사항:');
+      console.log('   - UTF-8 인코딩 (BOM 없음)');
+      console.log('   - 필수 필드: <<<begin>>>, <<<mapid>>>, <<<pname>>>, <<<price>>>, <<<pgurl>>>, <<<igurl>>>, <<<cate1>>>, <<<deliv>>>, <<<ftend>>>');
+      console.log('   - 데이터 검증: 상품 ID 50자 이하, 상품명 100자 이하, 가격 정수만 허용');
+      console.log('   - URL 형식: http://로 시작, 255바이트 이하');
     });
     
   } catch (error) {

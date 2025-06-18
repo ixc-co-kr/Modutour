@@ -20,49 +20,78 @@ const NaverEPManager: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
 
-  // EP 상태 조회
+  // loadEPStatus 함수 내부 수정
   const loadEPStatus = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/naver/ep-status');
-      const result = await response.json();
+  try {
+    setLoading(true);
+    const response = await fetch('http://localhost:5001/api/dashboard/stats', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      mode: 'cors'
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      // ⭐ 서버 응답을 기존 구조에 맞게 변환
+      const mappedData: EPStatus = {
+        totalProducts: result.data.totalRegistered,
+        epFiles: result.data.epUrl ? [{
+          fileName: 'ep.txt',
+          url: result.data.epUrl,
+          createdAt: result.data.lastEpTime,
+          size: result.data.epProductCount * 100 // 대략적인 크기 계산
+        }] : [],
+        latestEP: result.data.epUrl ? {
+          fileName: 'ep.txt',
+          url: result.data.epUrl,
+          createdAt: result.data.lastEpTime,
+          size: result.data.epProductCount * 100
+        } : null
+      };
       
-      if (result.success) {
-        setEpStatus(result.data);
-      }
-    } catch (error) {
-      console.error('EP 상태 조회 실패:', error);
-    } finally {
-      setLoading(false);
+      setEpStatus(mappedData);
     }
-  };
+  } catch (error) {
+    console.error('EP 상태 조회 실패:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  // EP 생성
-  const generateEP = async () => {
-    try {
-      setGenerating(true);
-      const response = await fetch('/api/naver/generate-ep', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
 
-      const result = await response.json();
-      
-      if (result.success) {
-        alert(`네이버 EP 생성 완료!\n\n${result.message}\n\nEP URL: ${result.data.epUrl}`);
-        await loadEPStatus();
-      } else {
-        alert(`EP 생성 실패: ${result.message}`);
-      }
-    } catch (error) {
-      console.error('EP 생성 실패:', error);
-      alert('EP 생성 중 오류가 발생했습니다.');
-    } finally {
-      setGenerating(false);
+  // generateEP 함수 수정
+const generateEP = async () => {
+  try {
+    setGenerating(true);
+    const response = await fetch('http://localhost:5001/api/feed/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      mode: 'cors'
+    });
+
+    const result = await response.json();
+    
+    if (result.success) {
+      alert(`피드 생성 완료!\n\n${result.message}\n\nEP URL: ${result.data.epUrl}`);
+      await loadEPStatus();
+    } else {
+      alert(`피드 생성 실패: ${result.message}`);
     }
-  };
+  } catch (error) {
+    console.error('피드 생성 실패:', error);
+    alert('피드 생성 중 오류가 발생했습니다.');
+  } finally {
+    setGenerating(false);
+  }
+};
+
 
   // URL 복사 함수
   const copyToClipboard = async (text: string) => {

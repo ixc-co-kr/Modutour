@@ -1,0 +1,131 @@
+<<<begin>>>
+<<<mapid>>>ATP15104
+<<<pname>>>[모두투어] [반반팩/파타야OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>949900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93911482
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/23806/bfile/638545007702838397.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>#산호섬 #한방스파 #몽창카페 #아시아티크 #서프앤터프 #모드사톤 #여행자보험 상품별 포함
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>ATP15103
+<<<pname>>>[모두투어] [반반팩/파타야OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>1059900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93911484
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/23806/bfile/638545007702838397.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>#산호섬 #한방스파 #몽창카페 #아시아티크 #서프앤터프 #모드사톤 #여행자보험 상품별 포함
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>ATP15105
+<<<pname>>>[모두투어] [반반팩/파타야OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>879900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93911486
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/23806/bfile/638545007702838397.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>#산호섬 #한방스파 #몽창카페 #아시아티크 #서프앤터프 #모드사톤 #여행자보험 상품별 포함
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>ATP15008
+<<<pname>>>[모두투어] [반반팩/방콕OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>589900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93831346
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/1373/bfile/638743451995659484.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>#담넉사두억 #위험한기찻길시장 #무앙보란 #MK수끼 #모드사톤 #여행자보험 상품별 포함사항
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>ATP15005
+<<<pname>>>[모두투어] [반반팩/방콕OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>779900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93832088
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/1373/bfile/638743451995659484.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>#담넉사두억 #위험한기찻길시장 #무앙보란 #MK수끼 #모드사톤 #여행자보험 상품별 포함사항
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>ATP15107
+<<<pname>>>[모두투어] [반반팩/파타야OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>829900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93911490
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/23806/bfile/638545007702838397.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>ATP15106
+<<<pname>>>[모두투어] [반반팩/파타야OneDayTour] 방콕 5일 (모드사톤)
+<<<price>>>759900
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=93911481
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/23806/bfile/638545007702838397.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>#산호섬 #한방스파 #몽창카페 #아시아티크 #서프앤터프 #모드사톤 #여행자보험 상품별 포함
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>PSA412
+<<<pname>>>[모두투어] [에어텔]사이판 PIC리조트 4/5일<워터파크리조트>
+<<<price>>>792200
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=1749810408388956
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/22089/Bfile/635766345187948545.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>즐거움이 가득한 작은 나라 PIC
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>PGA421
+<<<pname>>>[모두투어] [에어텔]괌 호시노리조트 리조나레 4/5일<워터파크리조트>
+<<<price>>>520000
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=17498103993790
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/22038/Bfile/635911461895939685.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>괌 최고의 워터파크 시설을 보유한 호시노리조트 리조나레는 파란 하늘과 에메랄드빛 바다로 둘
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>PGA410
+<<<pname>>>[모두투어] [에어텔]괌 크라운플라자호텔 4/5일<그랜드오픈>
+<<<price>>>765000
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=1749810398713162
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/69310/Bfile/638004740011767458.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>깔끔한 인테리어의 객실과 레스토랑, 로비를 갖춘 리조트입니다. 괌 초기에 자리를 잡은 장점
+<<<ftend>>>
+
+<<<begin>>>
+<<<mapid>>>PSA415
+<<<pname>>>[모두투어] [에어텔]사이판 월드리조트 4/5일<워터파크리조트>
+<<<price>>>967800
+<<<pgurl>>>https://tourmake.modetour.co.kr/Pkg/Itinerary/?Pnum=1749810412359851
+<<<igurl>>>https://img.modetour.com/eagle/photoimg/22721/Bfile/635955566174522040.jpg
+<<<cate1>>>해외여행
+<<<deliv>>>0
+<<<brand>>>해외여행
+<<<event>>>워터파크를 자랑하는 가족 휴양 중심의 리조트
+<<<ftend>>>
+
