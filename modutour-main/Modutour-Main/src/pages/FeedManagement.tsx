@@ -36,7 +36,11 @@ const FeedManagement: React.FC = () => {
     try {
       setLoading(true);
       
-      const response = await fetch('http://localhost:5001/api/dashboard/stats', {
+      // 환경 변수에서 API 기본 URL을 가져옵니다.
+      const API_BASE_URL = import.meta.env.VITE_API_URL;
+      
+      // 실제 서비스 도메인을 사용하는 API 주소로 요청을 보냅니다.
+      const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -99,7 +103,8 @@ const FeedManagement: React.FC = () => {
     try {
       setGenerating(true);
       
-      const response = await fetch('http://localhost:5001/api/feed/generate', {
+      const API_BASE_URL = import.meta.env.VITE_API_URL;
+      const response = await fetch(`${API_BASE_URL}/feed/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
